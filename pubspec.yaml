@@ -1,0 +1,31 @@
+name: drafter
+description: >-
+  A premium, dependency-free Flutter charting library with ~27 chart types,
+  smooth Catmull-Rom curves, soft gradient fills and a left-to-right reveal.
+version: 0.1.0
+homepage: https://github.com/AndroidPoet/DrafterFlutter
+repository: https://github.com/AndroidPoet/DrafterFlutter
+issue_tracker: https://github.com/AndroidPoet/DrafterFlutter/issues
+documentation: https://github.com/AndroidPoet/DrafterFlutter#readme
+
+topics:
+  - chart
+  - charts
+  - visualization
+  - graph
+  - diagram
+
+environment:
+  sdk: ^3.10.0
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  very_good_analysis: ^10.0.0
+
+flutter:

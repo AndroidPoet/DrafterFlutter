@@ -1,0 +1,32 @@
+# Lint configuration for the Drafter charting library.
+#
+# Uses `very_good_analysis` — the strictest mainstream Dart/Flutter lint set —
+# and relaxes the same opinionated rules the leading chart library (fl_chart)
+# relaxes, so the codebase stays strict where it matters without fighting the
+# style on every line.
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**.g.dart"
+    - "**.freezed.dart"
+
+linter:
+  rules:
+    always_put_required_named_parameters_first: false
+    avoid_bool_literals_in_conditional_expressions: false
+    avoid_catches_without_on_clauses: false
+    avoid_positional_boolean_parameters: false
+    comment_references: false
+    library_private_types_in_public_api: false
+    lines_longer_than_80_chars: false
+    no_default_cases: false
+    parameter_assignments: false
+    # The charts are double-heavy graphics math; forcing int literals on
+    # accumulators/coordinates breaks `double` inference, so we opt out.
+    prefer_int_literals: false
+    prefer_asserts_with_message: false
+    prefer_constructors_over_static_methods: false
+    public_member_api_docs: false
+    use_if_null_to_convert_nulls_to_bools: false
+    use_setters_to_change_properties: false
