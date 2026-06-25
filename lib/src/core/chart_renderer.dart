@@ -121,6 +121,9 @@ class _ChartCanvasState extends State<ChartCanvas>
   @override
   void didUpdateWidget(ChartCanvas old) {
     super.didUpdateWidget(old);
+    if (old.duration != widget.duration) {
+      _controller.duration = widget.duration;
+    }
     if (old.replay != widget.replay && widget.animate) {
       _controller.reset();
       unawaited(_controller.forward());
@@ -136,18 +139,20 @@ class _ChartCanvasState extends State<ChartCanvas>
   @override
   Widget build(BuildContext context) {
     final theme = DrafterTheme.of(context);
+    // The painter repaints directly off [_reveal] (no per-frame widget
+    // rebuild), and the RepaintBoundary isolates the chart's raster layer so
+    // animating it never repaints the surrounding UI.
     return Semantics(
       label: widget.renderer.accessibilityLabel,
       value: widget.renderer.accessibilityValue,
       container: true,
-      child: AnimatedBuilder(
-        animation: _reveal,
-        builder: (context, _) => CustomPaint(
+      child: RepaintBoundary(
+        child: CustomPaint(
           size: Size.infinite,
           painter: _RendererPainter(
             renderer: widget.renderer,
             theme: theme,
-            progress: widget.animate ? _reveal.value : 1,
+            animation: _reveal,
           ),
         ),
       ),
@@ -159,22 +164,22 @@ class _RendererPainter extends CustomPainter {
   _RendererPainter({
     required this.renderer,
     required this.theme,
-    required this.progress,
-  });
+    required this.animation,
+  }) : super(repaint: animation);
 
   final ChartRenderer renderer;
   final DrafterThemeColors theme;
-  final double progress;
+  final Animation<double> animation;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
-    renderer.draw(canvas, size, theme, progress);
+    renderer.draw(canvas, size, theme, animation.value);
   }
 
   @override
   bool shouldRepaint(_RendererPainter old) =>
-      old.progress != progress ||
       old.renderer != renderer ||
-      old.theme != theme;
+      old.theme != theme ||
+      old.animation != animation;
 }

@@ -91,18 +91,24 @@ class DrafterThemeColors {
     isDark: true,
   );
 
-  /// Cycles the palette by index, wrapping around.
-  Color colorAt(int index) =>
-      palette[((index % palette.length) + palette.length) % palette.length];
+  /// Cycles the palette by index, wrapping around. Falls back to
+  /// [DrafterColors.blue] when the palette is empty rather than throwing.
+  Color colorAt(int index) {
+    if (palette.isEmpty) return DrafterColors.blue;
+    return palette[((index % palette.length) + palette.length) %
+        palette.length];
+  }
 
   @override
   bool operator ==(Object other) =>
       other is DrafterThemeColors &&
+      listEquals(other.palette, palette) &&
       other.grid == grid &&
       other.label == label &&
       other.surface == surface &&
       other.isDark == isDark;
 
   @override
-  int get hashCode => Object.hash(grid, label, surface, isDark);
+  int get hashCode =>
+      Object.hash(Object.hashAll(palette), grid, label, surface, isDark);
 }

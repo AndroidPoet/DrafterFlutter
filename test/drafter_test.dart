@@ -118,4 +118,32 @@ void main() {
       equals(DrafterThemeColors.light.colorAt(DrafterColors.palette.length)),
     );
   });
+
+  test(
+    'changing only the palette makes the theme unequal (recolors charts)',
+    () {
+      final a = DrafterThemeColors.light;
+      final b = DrafterThemeColors(
+        palette: [DrafterColors.coral, DrafterColors.green],
+        grid: a.grid,
+        label: a.label,
+        surface: a.surface,
+        isDark: a.isDark,
+      );
+      expect(a == b, isFalse, reason: 'palette must participate in ==');
+      expect(a.hashCode == b.hashCode, isFalse);
+    },
+  );
+
+  test('colorAt on an empty palette falls back instead of throwing', () {
+    final empty = DrafterThemeColors(
+      palette: const [],
+      grid: DrafterColors.gridLight,
+      label: DrafterColors.labelLight,
+      surface: DrafterColors.surfaceLight,
+      isDark: false,
+    );
+    expect(() => empty.colorAt(0), returnsNormally);
+    expect(() => empty.colorAt(7), returnsNormally);
+  });
 }
