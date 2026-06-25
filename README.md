@@ -14,13 +14,13 @@
 </p>
 </div>
 
-<!-- Drop a gallery capture at Art/demo.gif and enable this:
 <div align="center">
 
 ![Drafter demo](Art/demo.gif)
 
+<sub><a href="https://github.com/AndroidPoet/DrafterFlutter/raw/main/Art/demo.mp4">▶ Watch the full-resolution video</a></sub>
+
 </div>
--->
 
 ## Features
 

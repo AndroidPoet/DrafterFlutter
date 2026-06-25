@@ -1,0 +1,3 @@
+# Keep the published pub.dev archive lean — README media lives in the repo and
+# pub.dev rewrites the relative links to the GitHub raw URLs, so it still renders.
+Art/
