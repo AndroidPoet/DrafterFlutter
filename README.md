@@ -44,7 +44,7 @@ Add Drafter to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  drafter: ^0.1.0
+  drafter: ^0.2.0
 ```
 
 Or from the command line:

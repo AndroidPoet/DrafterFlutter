@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 ### Added
 * `ScatterPlot.values(values: [(x, y), …])` — a values-first convenience
