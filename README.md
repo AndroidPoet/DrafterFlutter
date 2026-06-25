@@ -86,6 +86,7 @@ LineChart.values(values: [40, 65, 50, 80, 70, 95])
 AreaChart.values(values: [12, 18, 9, 24, 20, 30], color: DrafterColors.teal)
 SimpleBarChart.values(values: [24, 38, 30, 46])
 StepLineChart.values(values: [10, 25, 18, 32])
+ScatterPlot.values(values: [(1, 2), (3, 5), (4, 3)])   // raw (x, y) pairs
 ```
 
 The full point/series form (`points:`, `series:`, `bars:`) is the primary API for
@@ -497,6 +498,41 @@ DrafterTheme(
 built-in light/dark set by a boolean. Each chart's geometry lives in a pure
 `ChartRenderer` hosted by `ChartCanvas`, so the drawing is testable and the
 theming + reveal animation are centralized in one place.
+
+## Writing a custom chart
+
+The everyday `package:drafter/drafter.dart` import gives you the chart widgets,
+data models and theming. The lower-level building blocks for authoring your own
+chart live in a separate entrypoint so they stay out of your way:
+
+```dart
+import 'package:drafter/drafter.dart';   // DrafterThemeColors, data models
+import 'package:drafter/painting.dart';  // ChartRenderer, ChartCanvas, helpers
+
+class MyRenderer extends ChartRenderer {
+  const MyRenderer();
+
+  @override
+  void draw(Canvas canvas, Size size, DrafterThemeColors theme, double progress) {
+    final bounds = ChartBounds(size);              // shared layout math
+    canvas.drawRect(bounds.rect, Paint()..color = theme.colorAt(0));
+    drawChartText(canvas, 'hi', bounds.rect.center, color: theme.label);
+  }
+
+  @override
+  String get accessibilityLabel => 'My chart';
+  @override
+  String get accessibilityValue => 'a summary of the data';
+}
+
+// Host it in the shared animating canvas:
+const ChartCanvas(renderer: MyRenderer());
+```
+
+`painting.dart` exposes the renderer base (`ChartRenderer`/`ChartCanvas`), the
+layout helpers (`ChartBounds`, `RadialLayout`, `ChartAxis`, `HAlign`/`VAlign`),
+the smooth-graphics helpers (`smoothPath`, `drawSmoothLine`, `drawChartText`,
+`areaGradientShader`), and the shared formatters.
 
 ## Accessibility
 

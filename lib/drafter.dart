@@ -17,9 +17,15 @@
 /// Drafter — a premium, dependency-free Flutter charting library.
 ///
 /// A faithful port of the Compose/SwiftUI Drafter charts: each chart is a pure
-/// [ChartRenderer] (drawing into a `Canvas`) hosted by a thin widget over a
-/// shared core — data models, axis/radial math, Catmull-Rom smooth graphics,
-/// and a left-to-right reveal animation. Calm, premium palette; no harsh red.
+/// renderer (drawing into a `Canvas`) hosted by a thin widget over a shared
+/// core — data models, axis/radial math, Catmull-Rom smooth graphics, and a
+/// left-to-right reveal animation. Calm, premium palette; no harsh red.
+///
+/// This entrypoint exports the chart widgets, their data models, and theming —
+/// everything most apps need. The lower-level extension API (the `ChartRenderer`
+/// base, `ChartCanvas`, layout math and smooth-graphics helpers) lives in a
+/// separate `package:drafter/painting.dart` import, so it stays out of the way
+/// unless you're writing a custom chart.
 library;
 
 // Charts.
@@ -43,12 +49,9 @@ export 'src/charts/step_line_chart.dart';
 export 'src/charts/stream_graph_chart.dart';
 export 'src/charts/sunburst_chart.dart';
 export 'src/charts/treemap_chart.dart';
-// Core.
+// Core data models. (Rendering helpers — chart_graphics/chart_math/
+// chart_renderer/chart_formatting — are exported from `painting.dart`.)
 export 'src/core/chart_data.dart';
-export 'src/core/chart_formatting.dart';
-export 'src/core/chart_graphics.dart';
-export 'src/core/chart_math.dart';
-export 'src/core/chart_renderer.dart';
 // Theme.
 export 'src/theme/drafter_colors.dart';
 export 'src/theme/drafter_theme.dart';

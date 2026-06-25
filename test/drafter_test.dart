@@ -135,6 +135,16 @@ void main() {
     },
   );
 
+  testWidgets('ScatterPlot.values builds points from (x, y) pairs', (
+    tester,
+  ) async {
+    await _pumpChart(
+      tester,
+      ScatterPlot.values(values: const [(1, 2), (3, 4), (5, 6)]),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   test('colorAt on an empty palette falls back instead of throwing', () {
     final empty = DrafterThemeColors(
       palette: const [],

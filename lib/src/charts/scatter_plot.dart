@@ -154,6 +154,15 @@ class ScatterPlot extends StatelessWidget {
     this.replay = 0,
   });
 
+  /// Convenience for raw `(x, y)` pairs, coloring each point from the theme
+  /// palette. Mirrors the values-first constructors on the line/bar charts.
+  ScatterPlot.values({
+    super.key,
+    required List<(double, double)> values,
+    this.animate = true,
+    this.replay = 0,
+  }) : points = [for (final (x, y) in values) ScatterPoint(x: x, y: y)];
+
   final List<ScatterPoint> points;
   final bool animate;
   final int replay;
