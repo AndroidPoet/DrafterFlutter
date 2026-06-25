@@ -165,8 +165,9 @@ class StreamGraphChartRenderer extends ChartRenderer {
 
     final topPath = smoothPath(topEdge);
 
-    // Closed band: smooth top edge L->R, then smooth bottom edge R->L, close.
-    final band = smoothPath(topEdge);
+    // Closed band: reuse the already-computed top spline, then smooth the
+    // bottom edge R->L and close (avoids computing smoothPath twice).
+    final band = Path.from(topPath);
     _appendSmoothInto(band, bottomEdge.reversed.toList());
     band.close();
 

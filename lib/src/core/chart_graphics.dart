@@ -152,8 +152,15 @@ void drawSmoothLine(
       ..restore();
   }
 
-  // Trace the stroke exactly up to the reveal frontier for a clean "drawing" feel.
-  final drawn = trimPath(linePath, clamped);
+  // Trace the stroke exactly up to the reveal frontier for a clean "drawing"
+  // feel. Compute the path metrics once and reuse them for both the trim and
+  // the end-dot tangent below (computeMetrics flattens the whole path, so doing
+  // it once instead of twice halves the per-frame cost on line charts).
+  final metrics = linePath.computeMetrics().toList();
+  final drawn = Path();
+  for (final metric in metrics) {
+    drawn.addPath(metric.extractPath(0, metric.length * clamped), Offset.zero);
+  }
   canvas.drawPath(
     drawn,
     Paint()
@@ -167,7 +174,7 @@ void drawSmoothLine(
   // Glowing dot at the leading edge of the reveal.
   if (endDot && clamped > 0.001) {
     Offset? pos;
-    for (final metric in linePath.computeMetrics()) {
+    for (final metric in metrics) {
       final t = metric.getTangentForOffset(metric.length * clamped);
       if (t != null) pos = t.position;
     }
@@ -198,6 +205,33 @@ void drawVertexDot(Canvas canvas, Offset center, Color color, double radius) {
 // Text
 // ---------------------------------------------------------------------------
 
+/// Caches laid-out [TextPainter]s keyed by content + style. Chart labels are
+/// static text, but the painter repaints every animation frame — without this
+/// cache every label re-shapes (`layout()`) ~60×/second, which is one of the
+/// most expensive 2D ops. Bounded so dynamic data can't grow it without limit.
+final Map<int, TextPainter> _textPainterCache = <int, TextPainter>{};
+
+TextPainter _layoutLabel(
+  String text,
+  Color color,
+  double fontSize,
+  FontWeight weight,
+) {
+  final key = Object.hash(text, color, fontSize, weight);
+  final cached = _textPainterCache[key];
+  if (cached != null) return cached;
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(color: color, fontSize: fontSize, fontWeight: weight),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  if (_textPainterCache.length >= 512) _textPainterCache.clear();
+  _textPainterCache[key] = painter;
+  return painter;
+}
+
 /// Draws [text] anchored at [at] by [h]/[v]. The shared label helper every chart
 /// uses (the equivalent of SwiftUI's `context.draw(Text…, at:, anchor:)`).
 void drawChartText(
@@ -210,13 +244,7 @@ void drawChartText(
   HAlign h = HAlign.start,
   VAlign v = VAlign.top,
 }) {
-  final painter = TextPainter(
-    text: TextSpan(
-      text: text,
-      style: TextStyle(color: color, fontSize: fontSize, fontWeight: weight),
-    ),
-    textDirection: TextDirection.ltr,
-  )..layout();
+  final painter = _layoutLabel(text, color, fontSize, weight);
   final dx = ChartText.dx(h, painter.width);
   final dy = ChartText.dy(v, painter.height);
   painter.paint(canvas, Offset(at.dx + dx, at.dy + dy));

@@ -181,8 +181,10 @@ class BubbleChartRenderer extends ChartRenderer {
         final delay = (seriesIndex * group.length + bubbleIndex) * 0.1;
         final bubbleProgress = (progress - delay).clamp(0.0, 1.0);
 
-        final x = originX + (bubble.x / ranges.xMax) * chartWidth;
-        final y = originY - (bubble.y / ranges.yMax) * chartHeight;
+        // Use the floored xRange/yRange (not raw xMax/yMax) so an all-zero
+        // axis can't produce 0 / 0 = NaN flowing into Offset/drawCircle.
+        final x = originX + (bubble.x / xRange) * chartWidth;
+        final y = originY - (bubble.y / yRange) * chartHeight;
         final scaledSize = (bubble.size / maxBubbleSize) * scaleFactor;
         final radius = scaledSize * bubbleProgress;
         if (!(radius > 0)) continue;
