@@ -1,0 +1,23 @@
+name: drafter_finance_engine
+description: >-
+  Pure, UI-free engine for Drafter Finance trading charts — scales, viewport
+  math, indicators, hit-testing and a platform-agnostic display list. No Flutter.
+version: 0.1.0
+homepage: https://github.com/AndroidPoet/DrafterFinanceFlutter
+repository: https://github.com/AndroidPoet/DrafterFinanceFlutter
+issue_tracker: https://github.com/AndroidPoet/DrafterFinanceFlutter/issues
+topics:
+  - finance
+  - charts
+  - trading
+  - candlestick
+  - indicators
+
+environment:
+  sdk: ^3.10.0
+
+resolution: workspace
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

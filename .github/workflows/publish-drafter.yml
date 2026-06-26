@@ -1,0 +1,26 @@
+# Automated pub.dev publishing for the main charting library.
+#
+# Triggers on tags like `drafter-v0.2.0` (does NOT match `drafter_finance*`).
+# pub.dev automated publishing must be enabled for `drafter` with repository
+# `AndroidPoet/DrafterFlutter` and tag pattern `drafter-v{{version}}`.
+name: publish drafter
+
+on:
+  push:
+    tags:
+      - 'drafter-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for pub.dev OIDC authentication
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      # Resolve from the workspace root — pub refuses `get` inside a member dir.
+      - run: flutter pub get
+      - run: flutter pub publish --force
+        working-directory: packages/drafter

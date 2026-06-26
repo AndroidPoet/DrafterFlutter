@@ -1,0 +1,27 @@
+# Automated pub.dev publishing for the pure-Dart engine package.
+#
+# Triggers on tags like `drafter_finance_engine-v0.1.0`. pub.dev's automated
+# publishing must be enabled for this package (pub.dev → admin → Automated
+# publishing) with repository `AndroidPoet/DrafterFinanceFlutter` and tag
+# pattern `drafter_finance_engine-v{{version}}`.
+name: publish drafter_finance_engine
+
+on:
+  push:
+    tags:
+      - 'drafter_finance_engine-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for pub.dev OIDC authentication
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      # Resolve from the workspace root — pub refuses `get` inside a member dir.
+      - run: flutter pub get
+      - run: flutter pub publish --force
+        working-directory: packages/drafter_finance_engine
