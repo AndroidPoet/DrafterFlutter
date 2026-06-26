@@ -1,3 +1,13 @@
+## 0.1.1
+
+Docs and metadata only — no API changes.
+
+* Clarify this is the internal engine for `drafter_finance` (which most apps
+  should depend on instead).
+* Teaching-oriented README: indicators, building a `Scene`, writing a renderer,
+  crosshair, and how the two packages fit together.
+* Declare supported platforms (pure Dart → all six).
+
 ## 0.1.0
 
 Initial release — the pure-Dart engine behind `drafter_finance`.

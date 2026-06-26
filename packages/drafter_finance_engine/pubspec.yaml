@@ -1,8 +1,9 @@
 name: drafter_finance_engine
 description: >-
-  Pure, UI-free engine for Drafter Finance trading charts — scales, viewport
-  math, indicators, hit-testing and a platform-agnostic display list. No Flutter.
-version: 0.1.0
+  Internal engine for the drafter_finance trading charts — most apps should
+  depend on drafter_finance instead. Pure Dart (no Flutter): scales, indicators,
+  hit-testing and a platform-agnostic display list.
+version: 0.1.1
 homepage: https://github.com/AndroidPoet/DrafterFlutter
 repository: https://github.com/AndroidPoet/DrafterFlutter
 issue_tracker: https://github.com/AndroidPoet/DrafterFlutter/issues
@@ -15,6 +16,15 @@ topics:
 
 environment:
   sdk: ^3.10.0
+
+# Pure Dart — runs everywhere Dart does.
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  web:
+  windows:
 
 resolution: workspace
 
