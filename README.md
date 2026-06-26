@@ -580,26 +580,85 @@ dependencies:
 
 ```dart
 import 'package:drafter_finance/drafter_finance.dart';
-
-// Candlestick with a magnet crosshair (drag to scrub):
-FinanceCandlestickChart(candles: candles);
-
-// TradingView color preset:
-FinanceCandlestickChart(candles: candles, style: TradingViewTheme.instance.candle());
-
-// Value-series charts:
-FinanceLineChart(values: closes);
-FinanceAreaChart(values: closes);
-FinanceBaselineChart(values: closes, style: DrafterTheme.instance.baseline(closes.first));
-FinanceHistogramChart(values: changes);
-FinanceVolumeChart(candles: candles);
-FinanceBarChart(candles: candles);
 ```
 
-Two themes ship in the box — `DrafterTheme` (calm premium palette with MA
-overlays) and `TradingViewTheme` (TradingView Lightweight Charts' exact default
-colors) — and every style is `copyWith`-customizable. See the
-[package README](packages/drafter_finance) for the full guide.
+Candle-based charts take a list of `Candle`s; the value-series charts take a
+`List<double>`. The snippets below share this data:
+
+```dart
+const candles = [
+  Candle(time: 0, open: 100, high: 106, low: 98,  close: 104, volume: 1200),
+  Candle(time: 1, open: 104, high: 109, low: 102, close: 103, volume: 980),
+  Candle(time: 2, open: 103, high: 108, low: 100, close: 107, volume: 1500),
+  Candle(time: 3, open: 107, high: 112, low: 105, close: 110, volume: 1100),
+];
+final closes = [for (final c in candles) c.close];
+```
+
+> As with the charts above, wrap each in a `SizedBox` (or any sizing widget) to
+> give it bounds. Two themes ship in the box — `DrafterTheme` (calm premium
+> palette with MA overlays) and `TradingViewTheme` (TradingView Lightweight
+> Charts' exact default colors) — and every style is `copyWith`-customizable.
+
+### Candlestick Chart
+
+Drag across it to scrub a magnet crosshair with an OHLC read-out. Pass
+`TradingViewTheme` for the classic green/red preset.
+
+```dart
+FinanceCandlestickChart(candles: candles)
+FinanceCandlestickChart(candles: candles, style: TradingViewTheme.instance.candle())
+```
+
+### OHLC Bar Chart
+
+```dart
+FinanceBarChart(candles: candles)
+```
+
+### Finance Line Chart
+
+```dart
+FinanceLineChart(values: closes)
+```
+
+### Area Chart
+
+```dart
+FinanceAreaChart(values: closes)
+```
+
+### Baseline Chart
+
+Fills above/below a reference value — here the first close.
+
+```dart
+FinanceBaselineChart(
+  values: closes,
+  style: DrafterTheme.instance.baseline(closes.first),
+)
+```
+
+### Histogram Chart
+
+Bars from a base value — e.g. per-candle change (`close − open`).
+
+```dart
+final changes = [for (final c in candles) c.close - c.open];
+
+FinanceHistogramChart(values: changes)
+```
+
+### Volume Chart
+
+Volume bars colored by candle direction (up/down).
+
+```dart
+FinanceVolumeChart(candles: candles)
+```
+
+See the [`drafter_finance` README](packages/drafter_finance) for indicators,
+custom styles and the full guide.
 
 ## Contributing
 
