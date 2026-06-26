@@ -3,9 +3,9 @@ description: >-
   Pure, UI-free engine for Drafter Finance trading charts — scales, viewport
   math, indicators, hit-testing and a platform-agnostic display list. No Flutter.
 version: 0.1.0
-homepage: https://github.com/AndroidPoet/DrafterFinanceFlutter
-repository: https://github.com/AndroidPoet/DrafterFinanceFlutter
-issue_tracker: https://github.com/AndroidPoet/DrafterFinanceFlutter/issues
+homepage: https://github.com/AndroidPoet/DrafterFlutter
+repository: https://github.com/AndroidPoet/DrafterFlutter
+issue_tracker: https://github.com/AndroidPoet/DrafterFlutter/issues
 topics:
   - finance
   - charts

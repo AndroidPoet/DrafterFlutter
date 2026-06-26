@@ -16,7 +16,7 @@
 
 <div align="center">
 
-![Drafter demo](Art/demo.gif)
+![Drafter demo](https://raw.githubusercontent.com/AndroidPoet/DrafterFlutter/main/Art/demo.gif)
 
 <sub><a href="https://github.com/AndroidPoet/DrafterFlutter/raw/main/Art/demo.mp4">▶ Watch the full-resolution video</a></sub>
 
@@ -566,7 +566,7 @@ flutter run            # or: flutter run -d macos / -d chrome
 ## Contributing
 
 Contributions are welcome! Found a bug, have an improvement, or want a new chart?
-Open an issue or a pull request — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Open an issue or a pull request — see [CONTRIBUTING.md](https://github.com/AndroidPoet/DrafterFlutter/blob/main/CONTRIBUTING.md).
 
 ## Find this repository useful? :heart:
 Support it by joining __[stargazers](https://github.com/AndroidPoet/DrafterFlutter/stargazers)__ for this repository. :star: <br>

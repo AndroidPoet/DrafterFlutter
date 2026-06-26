@@ -1,7 +1,3 @@
-# Keep the published pub.dev archive lean — README media lives in the repo and
-# pub.dev rewrites the relative links to the GitHub raw URLs, so it still renders.
-Art/
-
 # Trim example platform scaffolding from the archive — pub.dev only needs
 # example/lib for the Example tab, not the android/ios/macos/web/etc. shells.
 example/android/
