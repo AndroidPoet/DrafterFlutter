@@ -15,24 +15,36 @@
  */
 import 'dart:math' as math;
 
+import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// A single bubble: position (`x`, `y`), relative `size`, and a fill color.
+@immutable
 class BubbleData {
-  BubbleData({
+  /// Creates a bubble at (`x`, `y`) with the given [size] and optional [color]
+  /// (defaults to the Drafter blue palette color).
+  const BubbleData({
     required this.x,
     required this.y,
     required this.size,
     Color? color,
-  }) : color = color ?? DrafterColors.blue;
+  }) : color = color ?? const Color(0xFF4C8DF6); // mirrors DrafterColors.blue
 
+  /// The bubble's x position in data space.
   final double x;
+
+  /// The bubble's y position in data space.
   final double y;
+
+  /// The bubble's relative magnitude, mapped to its drawn radius.
   final double size;
+
+  /// The bubble's fill color.
   final Color color;
 }
 
@@ -52,13 +64,76 @@ class _BubbleValueRanges {
 }
 
 /// Draws a bubble chart into a canvas with Cartesian axes and a grid.
-class BubbleChartRenderer extends ChartRenderer {
+class BubbleChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a bubble-chart renderer for the given [series].
   const BubbleChartRenderer({required this.series});
 
+  /// The bubble groups to draw; each inner list is one series.
   final List<List<BubbleData>> series;
+
+  @override
+  ChartScene buildScene(Size size) {
+    final all = [for (final group in series) ...group];
+    if (all.isEmpty) return ChartScene.empty;
+
+    // Same plot origin / extent the draw() pass uses.
+    const originX = 40.0;
+    final originY = size.height - 20;
+    final chartWidth = size.width - 60;
+    final chartHeight = size.height - 60;
+    if (!(chartWidth > 0) || !(chartHeight > 0)) return ChartScene.empty;
+
+    final ranges = _valueRanges();
+    final xRange = math.max(ranges.xMax - ranges.xMin, 0.0001);
+    final yRange = math.max(ranges.yMax - ranges.yMin, 0.0001);
+
+    final maxBubbleSize = all
+        .map((b) => drafterFinite(b.size))
+        .fold(0.0, math.max);
+    if (!(maxBubbleSize > 0)) return ChartScene.empty;
+    final scaleFactor = math.min(chartWidth, chartHeight) / 6;
+
+    // Free x/y/size layout (not index-uniform) → no CartesianScale. Each bubble
+    // owns a circular tap halo (drawn radius, floored to a comfortable minimum).
+    final bounds = ChartBounds(size, padding: 0);
+    final marks = <PlotMark>[];
+    for (var seriesIndex = 0; seriesIndex < series.length; seriesIndex++) {
+      final group = series[seriesIndex];
+      for (var bubbleIndex = 0; bubbleIndex < group.length; bubbleIndex++) {
+        final bubble = group[bubbleIndex];
+        final x = originX + (drafterFinite(bubble.x) / xRange) * chartWidth;
+        final y = originY - (drafterFinite(bubble.y) / yRange) * chartHeight;
+        // Full-progress radius (the buildScene mirrors the final frame).
+        final radius =
+            (drafterFinite(bubble.size) / maxBubbleSize) * scaleFactor;
+        final center = Offset(x, y);
+        marks.add(
+          PlotMark(
+            index: bubbleIndex,
+            seriesIndex: seriesIndex,
+            seriesName: '',
+            label:
+                '${ChartFormatting.format(bubble.x)}, '
+                '${ChartFormatting.format(bubble.y)}',
+            value: bubble.y,
+            center: center,
+            color: bubble.color,
+            region: Rect.fromCircle(
+              center: center,
+              radius: math.max(radius, 10),
+            ),
+          ),
+        );
+      }
+    }
+    return ChartScene(bounds: bounds, marks: marks);
+  }
 
   // Always start at 0; round the max up to a tidy bound (matches Compose).
   double _roundToNiceNumber(double value) {
+    // Guard before toInt(): a non-finite value would throw UnsupportedError
+    // (even in release builds).
+    if (!value.isFinite) return 10;
     if (value <= 50) return ((value + 9).toInt() ~/ 10 * 10).toDouble();
     if (value <= 100) return ((value + 24).toInt() ~/ 25 * 25).toDouble();
     return ((value + 49).toInt() ~/ 50 * 50).toDouble();
@@ -66,8 +141,13 @@ class BubbleChartRenderer extends ChartRenderer {
 
   _BubbleValueRanges _valueRanges() {
     final all = [for (final group in series) ...group];
-    final xMax = _roundToNiceNumber(all.map((b) => b.x).fold(0.0, math.max));
-    final yMax = _roundToNiceNumber(all.map((b) => b.y).fold(0.0, math.max));
+    // Fold over finite values only so a non-finite x/y can't poison the max.
+    final xMax = _roundToNiceNumber(
+      all.map((b) => drafterFinite(b.x)).fold(0.0, math.max),
+    );
+    final yMax = _roundToNiceNumber(
+      all.map((b) => drafterFinite(b.y)).fold(0.0, math.max),
+    );
     return _BubbleValueRanges(xMin: 0, xMax: xMax, yMin: 0, yMax: yMax);
   }
 
@@ -170,7 +250,9 @@ class BubbleChartRenderer extends ChartRenderer {
     }
 
     // Bubbles, with a per-bubble staggered reveal and size-proportional radius.
-    final maxBubbleSize = all.map((b) => b.size).fold(0.0, math.max);
+    final maxBubbleSize = all
+        .map((b) => drafterFinite(b.size))
+        .fold(0.0, math.max);
     if (!(maxBubbleSize > 0)) return;
     final scaleFactor = math.min(chartWidth, chartHeight) / 6;
 
@@ -183,9 +265,10 @@ class BubbleChartRenderer extends ChartRenderer {
 
         // Use the floored xRange/yRange (not raw xMax/yMax) so an all-zero
         // axis can't produce 0 / 0 = NaN flowing into Offset/drawCircle.
-        final x = originX + (bubble.x / xRange) * chartWidth;
-        final y = originY - (bubble.y / yRange) * chartHeight;
-        final scaledSize = (bubble.size / maxBubbleSize) * scaleFactor;
+        final x = originX + (drafterFinite(bubble.x) / xRange) * chartWidth;
+        final y = originY - (drafterFinite(bubble.y) / yRange) * chartHeight;
+        final scaledSize =
+            (drafterFinite(bubble.size) / maxBubbleSize) * scaleFactor;
         final radius = scaledSize * bubbleProgress;
         if (!(radius > 0)) continue;
 
@@ -218,22 +301,32 @@ class BubbleChartRenderer extends ChartRenderer {
 
 /// A bubble (scatter) chart with magnitude-based axes and a staggered reveal.
 class BubbleChart extends StatelessWidget {
+  /// Creates a bubble chart from [series] (each inner list is one series).
   const BubbleChart({
     super.key,
     required this.series,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 2000),
   });
 
+  /// The bubble groups to draw; each inner list is one series.
   final List<List<BubbleData>> series;
+
+  /// Whether the bubbles animate in on first reveal.
   final bool animate;
+
+  /// Bump this to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: BubbleChartRenderer(series: series),
     animate: animate,
-    duration: const Duration(milliseconds: 2000),
+    duration: duration,
     replay: replay,
   );
 }

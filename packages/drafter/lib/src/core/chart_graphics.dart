@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:drafter/src/core/chart_math.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 // ---------------------------------------------------------------------------
@@ -232,6 +234,16 @@ TextPainter _layoutLabel(
   return painter;
 }
 
+/// The laid-out pixel width of [text] in the chart label style, using the same
+/// cache as [drawChartText]. Lets renderers de-overlap axis labels by measured
+/// width (via `LabelLayout.thin`) instead of guessing a stride.
+double measureChartText(
+  String text, {
+  double fontSize = 9,
+  FontWeight weight = FontWeight.normal,
+  Color color = const Color(0xFF000000),
+}) => _layoutLabel(text, color, fontSize, weight).width;
+
 /// Draws [text] anchored at [at] by [h]/[v]. The shared label helper every chart
 /// uses (the equivalent of SwiftUI's `context.draw(Text…, at:, anchor:)`).
 void drawChartText(
@@ -248,4 +260,188 @@ void drawChartText(
   final dx = ChartText.dx(h, painter.width);
   final dy = ChartText.dy(v, painter.height);
   painter.paint(canvas, Offset(at.dx + dx, at.dy + dy));
+}
+
+// ---------------------------------------------------------------------------
+// Interaction overlays (trackball / tooltip / selection)
+//
+// Shared Canvas helpers for the interactive layer. They take primitive geometry
+// + colors (not chart models) so they stay decoupled and reuse the text cache.
+// ---------------------------------------------------------------------------
+
+/// A white-haloed ring marking a highlighted/selected datum.
+void drawHighlightRing(
+  Canvas canvas,
+  Offset center,
+  Color color, {
+  double radius = 6,
+}) {
+  canvas
+    ..drawCircle(center, radius + 2.5, Paint()..color = const Color(0xFFFFFFFF))
+    ..drawCircle(center, radius, Paint()..color = color)
+    ..drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = const Color(0xFFFFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+}
+
+/// A vertical trackball line at [x] spanning [top]..[bottom], with optional ring
+/// [markers] (one per series value at the active column) in [markerColors].
+void drawTrackball(
+  Canvas canvas, {
+  required double x,
+  required double top,
+  required double bottom,
+  required Color lineColor,
+  List<Offset> markers = const [],
+  List<Color> markerColors = const [],
+}) {
+  canvas.drawLine(
+    Offset(x, top),
+    Offset(x, bottom),
+    Paint()
+      ..color = lineColor
+      ..strokeWidth = 1,
+  );
+  for (var i = 0; i < markers.length; i++) {
+    final c = i < markerColors.length ? markerColors[i] : lineColor;
+    drawHighlightRing(canvas, markers[i], c, radius: 5);
+  }
+}
+
+/// A translucent drag range-selection band over [rect].
+void drawSelectionBand(
+  Canvas canvas,
+  Rect rect, {
+  required Color fill,
+  required Color border,
+}) {
+  if (rect.width <= 0 || rect.height <= 0) return;
+  canvas
+    ..drawRect(rect, Paint()..color = fill)
+    ..drawRect(
+      rect,
+      Paint()
+        ..color = border
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+}
+
+/// One row of a tooltip: a text line with an optional color [swatch].
+@immutable
+class TooltipRow {
+  /// Creates a tooltip row showing [text] with an optional color [swatch].
+  const TooltipRow(this.text, {this.swatch});
+
+  /// The row's text.
+  final String text;
+
+  /// An optional color chip drawn before the text (e.g. a series color).
+  final Color? swatch;
+}
+
+/// Draws a rounded tooltip panel near [anchor], laying out an optional [title]
+/// above [rows]. The panel is kept fully inside [container] (flipped to the
+/// other side of the anchor and clamped to the edges as needed), so it never
+/// clips off-screen. Reuses the shared text cache via [drawChartText].
+void drawTooltip(
+  Canvas canvas, {
+  required Offset anchor,
+  required Size container,
+  required List<TooltipRow> rows,
+  required Color background,
+  required Color textColor,
+  required Color mutedTextColor,
+  String? title,
+}) {
+  final hasTitle = title != null && title.isNotEmpty;
+  if (rows.isEmpty && !hasTitle) return;
+
+  const pad = 8.0;
+  const rowH = 16.0;
+  const swatchSize = 8.0;
+  const swatchGap = 6.0;
+  const fontSize = 10.0;
+
+  var maxW = 0.0;
+  if (hasTitle) {
+    maxW = math.max(
+      maxW,
+      _layoutLabel(title, textColor, fontSize, FontWeight.w600).width,
+    );
+  }
+  for (final r in rows) {
+    final textW = _layoutLabel(
+      r.text,
+      textColor,
+      fontSize,
+      FontWeight.normal,
+    ).width;
+    final w = textW + (r.swatch != null ? swatchSize + swatchGap : 0.0);
+    maxW = math.max(maxW, w);
+  }
+
+  final titleH = hasTitle ? rowH : 0.0;
+  final boxW = maxW + pad * 2;
+  final boxH = titleH + rows.length * rowH + pad * 2;
+
+  // Prefer the right of the anchor; flip left if it would overflow, then clamp.
+  var left = anchor.dx + 12;
+  if (left + boxW > container.width) left = anchor.dx - 12 - boxW;
+  left = left.clamp(0.0, math.max(0.0, container.width - boxW));
+  final top = anchor.dy
+      .clamp(0.0, math.max(0.0, container.height - boxH))
+      .toDouble();
+
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(left, top, boxW, boxH),
+      const Radius.circular(8),
+    ),
+    Paint()..color = background,
+  );
+
+  var cy = top + pad;
+  if (hasTitle) {
+    drawChartText(
+      canvas,
+      title,
+      Offset(left + pad, cy),
+      color: mutedTextColor,
+      fontSize: fontSize,
+      weight: FontWeight.w600,
+    );
+    cy += rowH;
+  }
+  for (final r in rows) {
+    var tx = left + pad;
+    if (r.swatch != null) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            tx,
+            cy + (fontSize - swatchSize) / 2 + 2,
+            swatchSize,
+            swatchSize,
+          ),
+          const Radius.circular(2),
+        ),
+        Paint()..color = r.swatch!,
+      );
+      tx += swatchSize + swatchGap;
+    }
+    drawChartText(
+      canvas,
+      r.text,
+      Offset(tx, cy),
+      color: textColor,
+      fontSize: fontSize,
+    );
+    cy += rowH;
+  }
 }

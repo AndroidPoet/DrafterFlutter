@@ -20,14 +20,69 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// Draws `[ScatterPoint]` into a canvas using a bottom-left origin.
-class ScatterPlotRenderer extends ChartRenderer {
+class ScatterPlotRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a scatter-plot renderer for the given [points].
   const ScatterPlotRenderer({required this.points});
 
+  /// The points to plot, each carrying its own `(x, y)` and optional color.
   final List<ScatterPoint> points;
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (points.isEmpty) return ChartScene.empty;
+    final chartHeight = size.height * 0.8;
+    final chartTop = size.height * 0.1;
+    final chartBottom = chartTop + chartHeight;
+    final chartLeft = math.max(size.width * 0.1, 34.0);
+    final chartWidth = size.width * 0.9 - chartLeft;
+    final maxX = points.map((p) => drafterFinite(p.x)).fold(0.0, math.max);
+    final maxY = points.map((p) => drafterFinite(p.y)).fold(0.0, math.max);
+    if (!(maxX > 0) || !(maxY > 0) || !maxX.isFinite || !maxY.isFinite) {
+      return ChartScene.empty;
+    }
+
+    final bounds = ChartBounds.insets(
+      size,
+      left: chartLeft,
+      top: chartTop,
+      right: size.width - (chartLeft + chartWidth),
+      bottom: size.height - chartBottom,
+    );
+    // Free x/y layout (not index-uniform) → no CartesianScale; hit-test by the
+    // per-point region (a tap halo) and nearest center.
+    const hitRadius = 12.0;
+    final palette = DrafterColors.palette;
+    return ChartScene(
+      bounds: bounds,
+      marks: [
+        for (var i = 0; i < points.length; i++)
+          () {
+            final pt = points[i];
+            final x = chartLeft + (drafterFinite(pt.x) / maxX) * chartWidth;
+            final y =
+                chartTop +
+                chartHeight -
+                (drafterFinite(pt.y) / maxY) * chartHeight;
+            final center = Offset(x, y);
+            return PlotMark(
+              index: i,
+              seriesIndex: 0,
+              seriesName: '',
+              label: ChartFormatting.format(pt.x),
+              value: pt.y,
+              center: center,
+              color: pt.color ?? palette[i % palette.length],
+              region: Rect.fromCircle(center: center, radius: hitRadius),
+            );
+          }(),
+      ],
+    );
+  }
 
   @override
   void draw(
@@ -47,9 +102,9 @@ class ScatterPlotRenderer extends ChartRenderer {
     final chartLeft = math.max(size.width * 0.1, 34.0);
     final chartWidth = size.width * 0.9 - chartLeft;
 
-    final maxX = points.map((p) => p.x).fold(0.0, math.max);
-    final maxY = points.map((p) => p.y).fold(0.0, math.max);
-    if (!(maxX > 0) || !(maxY > 0)) return;
+    final maxX = points.map((p) => drafterFinite(p.x)).fold(0.0, math.max);
+    final maxY = points.map((p) => drafterFinite(p.y)).fold(0.0, math.max);
+    if (!(maxX > 0) || !(maxY > 0) || !maxX.isFinite || !maxY.isFinite) return;
 
     // Axes: left (Y) and bottom (X), origin at bottom-left.
     final axes = Path()
@@ -98,8 +153,11 @@ class ScatterPlotRenderer extends ChartRenderer {
 
     for (var index = 0; index < points.length; index++) {
       final point = points[index];
-      final x = chartLeft + (point.x / maxX) * chartWidth;
-      final y = chartTop + chartHeight - (point.y / maxY) * chartHeight;
+      final x = chartLeft + (drafterFinite(point.x) / maxX) * chartWidth;
+      final y =
+          chartTop +
+          chartHeight -
+          (drafterFinite(point.y) / maxY) * chartHeight;
       final center = Offset(x, y);
 
       // Each point's color travels with it; fall back to the theme palette by
@@ -147,11 +205,13 @@ class ScatterPlotRenderer extends ChartRenderer {
 
 /// A cartesian scatter plot with axis labels and dots that scale in on reveal.
 class ScatterPlot extends StatelessWidget {
+  /// Creates a scatter plot from explicit [points].
   const ScatterPlot({
     super.key,
     required this.points,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 2000),
   });
 
   /// Convenience for raw `(x, y)` pairs, coloring each point from the theme
@@ -161,17 +221,26 @@ class ScatterPlot extends StatelessWidget {
     required List<(double, double)> values,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 2000),
   }) : points = [for (final (x, y) in values) ScatterPoint(x: x, y: y)];
 
+  /// The points to plot, each carrying its own `(x, y)` and optional color.
   final List<ScatterPoint> points;
+
+  /// Whether the dots animate in on first reveal.
   final bool animate;
+
+  /// Bump this to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: ScatterPlotRenderer(points: points),
     animate: animate,
-    duration: const Duration(milliseconds: 2000),
+    duration: duration,
     replay: replay,
   );
 }

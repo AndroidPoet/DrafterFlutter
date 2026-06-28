@@ -26,7 +26,10 @@
 /// * Layout math — [ChartAxis], [ChartBounds], [RadialLayout], [ChartText],
 ///   [HAlign], [VAlign], `normalizedLabels`.
 /// * Smooth graphics — `smoothPath`, `drawSmoothLine`, `areaGradientShader`,
-///   `drawChartText`, `drawVertexDot`, `trimPath`.
+///   `drawChartText`, `measureChartText`, `drawVertexDot`, `trimPath`.
+/// * Interaction graphics — `drawTrackball`, `drawTooltip` ([TooltipRow]),
+///   `drawSelectionBand`, `drawHighlightRing` — for custom interactive renderers.
+/// * Hit-testing & label layout — [ChartHitTest], [LabelLayout].
 /// * [ChartFormatting] / [AccessibilityFormat] — shared number/label helpers.
 library;
 
@@ -34,3 +37,7 @@ export 'src/core/chart_formatting.dart';
 export 'src/core/chart_graphics.dart';
 export 'src/core/chart_math.dart';
 export 'src/core/chart_renderer.dart';
+// Interaction extension API: pure hit-testing + label de-overlap, for custom
+// charts that want to participate in tooltips/selection.
+export 'src/interaction/chart_hit_test.dart';
+export 'src/interaction/label_layout.dart';

@@ -19,6 +19,7 @@ import 'package:drafter/src/core/chart_data.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
@@ -26,13 +27,18 @@ import 'package:flutter/widgets.dart';
 /// the stack centred symmetrically around the chart midline. Each band uses its
 /// series' own `color`, so a colour can never desync from its data. [categories]
 /// supplies the optional x-axis labels.
-class StreamGraphChartRenderer extends ChartRenderer {
+class StreamGraphChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a stream-graph renderer for the given [series] and x-axis [categories].
   const StreamGraphChartRenderer({
     required this.series,
     this.categories = const [],
   });
 
+  /// The series stacked symmetrically around the chart midline.
   final List<ChartSeries> series;
+
+  /// Optional x-axis labels, one per shared x point.
   final List<String> categories;
 
   /// Number of x points shared by every series. Driven by the series' own value
@@ -58,7 +64,9 @@ class StreamGraphChartRenderer extends ChartRenderer {
   }
 
   double _valueAt(ChartSeries s, int index) =>
-      index >= 0 && index < s.values.length ? s.values[index] : 0.0;
+      index >= 0 && index < s.values.length
+      ? drafterFinite(s.values[index])
+      : 0.0;
 
   @override
   void draw(
@@ -137,6 +145,74 @@ class StreamGraphChartRenderer extends ChartRenderer {
       theme: theme,
       xs: xs,
       baseline: chartTop + chartHeight,
+    );
+  }
+
+  /// One [PlotMark] per (series, x-index) at the band's vertical mid-point for
+  /// that x, replicating [draw]'s centred stack at full reveal (progress = 1).
+  /// No region is set — hit-testing falls back to nearest-[PlotMark.center].
+  @override
+  ChartScene buildScene(Size size) {
+    final count = _pointCount;
+    if (count < 2 || series.isEmpty) return ChartScene.empty;
+
+    final chartLeft = size.width * 0.08;
+    final chartWidth = size.width * 0.84;
+    final chartTop = size.height * 0.06;
+    final chartHeight = size.height * 0.84;
+
+    final centerY = chartTop + chartHeight / 2;
+    final maxTotal = _maxTotal(count);
+    if (maxTotal <= 0) return ChartScene.empty;
+
+    final yScale = (chartHeight * 0.8) / maxTotal;
+    final stepX = count > 1 ? chartWidth / (count - 1) : chartWidth;
+    final xs = <double>[for (var i = 0; i < count; i++) chartLeft + i * stepX];
+
+    // Per-series thickness in pixels at each x (full reveal, p = 1).
+    final thickness = <List<double>>[
+      for (final s in series)
+        [for (var i = 0; i < count; i++) _valueAt(s, i) * yScale],
+    ];
+
+    // Centred baseline (top edge of the whole stack) at each x.
+    final stackTop = List<double>.filled(count, 0);
+    for (var i = 0; i < count; i++) {
+      var total = 0.0;
+      for (final layer in thickness) {
+        total += layer[i];
+      }
+      stackTop[i] = centerY - total / 2;
+    }
+
+    final labels = normalizedLabels(categories, count);
+    final runningTop = List<double>.of(stackTop);
+    final marks = <PlotMark>[];
+    for (var idx = 0; idx < series.length; idx++) {
+      final s = series[idx];
+      final layer = thickness[idx];
+      for (var i = 0; i < count; i++) {
+        final top = runningTop[i];
+        final bottom = top + layer[i];
+        runningTop[i] = bottom;
+        marks.add(
+          PlotMark(
+            index: i,
+            seriesIndex: idx,
+            seriesName: s.name,
+            label: labels[i],
+            value: _valueAt(s, i),
+            center: Offset(xs[i], (top + bottom) / 2),
+            color: s.color,
+          ),
+        );
+      }
+    }
+
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: labels,
+      marks: marks,
     );
   }
 
@@ -278,24 +354,36 @@ class StreamGraphChartRenderer extends ChartRenderer {
 /// they animate in. Each band's colour is bound to its `ChartSeries`; [categories]
 /// supplies the optional x-axis labels.
 class StreamGraphChart extends StatelessWidget {
+  /// Creates a stream graph for the given [series] and optional [categories].
   const StreamGraphChart({
     super.key,
     required this.series,
     this.categories = const [],
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// The series stacked symmetrically around the chart midline.
   final List<ChartSeries> series;
+
+  /// Optional x-axis labels.
   final List<String> categories;
+
+  /// Whether to animate the reveal on first build.
   final bool animate;
+
+  /// Increment to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: StreamGraphChartRenderer(series: series, categories: categories),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

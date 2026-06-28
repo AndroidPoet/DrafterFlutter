@@ -30,6 +30,7 @@ migrate_working_dir/
 /build/
 **/build/
 /coverage/
+**/coverage/
 
 # Generated / ephemeral platform files (example app)
 .flutter-plugins

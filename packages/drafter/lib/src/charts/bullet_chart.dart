@@ -17,31 +17,46 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// A single bullet-chart metric: a featured [value], a [target] to beat, and a
 /// set of qualitative [ranges] (band end-values) drawn as the backdrop.
+@immutable
 class BulletMetric {
-  BulletMetric({
+  /// Creates a bullet metric; [color] defaults to the palette indigo accent.
+  const BulletMetric({
     required this.label,
     required this.value,
     required this.target,
     required this.ranges,
     Color? color,
-  }) : color = color ?? DrafterColors.indigo;
+    // Equals DrafterColors.indigo; inlined as a const so this stays a const ctor.
+  }) : color = color ?? const Color(0xFF5B6BF0);
 
+  /// Name of the metric, shown in the left gutter.
   final String label;
+
+  /// Featured measure drawn as the animated bar.
   final double value;
+
+  /// Comparative target drawn as the vertical tick.
   final double target;
+
+  /// Qualitative band end-values forming the backdrop ranges.
   final List<double> ranges;
+
+  /// Color of the measure bar.
   final Color color;
 }
 
 /// Draws bullet-chart metrics into a canvas.
-class BulletChartRenderer extends ChartRenderer {
+class BulletChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for the given [metrics].
   const BulletChartRenderer({required this.metrics});
 
+  /// Metrics drawn as stacked KPI tracks, one row each.
   final List<BulletMetric> metrics;
 
   @override
@@ -82,16 +97,19 @@ class BulletChartRenderer extends ChartRenderer {
       final rowTop = chartTop + rowSlot * index + (rowSlot - rowHeight) / 2;
       final rowCenterY = rowTop + rowHeight / 2;
 
-      final sortedRanges = [...metric.ranges]..sort();
+      final value = drafterFinite(metric.value);
+      final target = drafterFinite(metric.target);
+      final sortedRanges = [for (final r in metric.ranges) drafterFinite(r)]
+        ..sort();
       final rangesMax = sortedRanges.isEmpty
           ? 0.0
           : sortedRanges.reduce((a, b) => a > b ? a : b);
       final rawMax = [
         rangesMax,
-        metric.value,
-        metric.target,
+        value,
+        target,
       ].reduce((a, b) => a > b ? a : b);
-      final maxValue = rawMax <= 0 ? 1.0 : rawMax;
+      final maxValue = (!rawMax.isFinite || rawMax <= 0) ? 1.0 : rawMax;
 
       // Qualitative range bands, increasingly darker translucent tint.
       for (var rIndex = 0; rIndex < sortedRanges.length; rIndex++) {
@@ -115,7 +133,7 @@ class BulletChartRenderer extends ChartRenderer {
       // Measure bar = value: thinner, rounded, animated width.
       final measureHeight = rowHeight * 0.42;
       final measureTop = rowCenterY - measureHeight / 2;
-      final measureFullWidth = (metric.value / maxValue) * trackWidth;
+      final measureFullWidth = (value / maxValue) * trackWidth;
       final measureWidth = (measureFullWidth * p) < 0
           ? 0.0
           : (measureFullWidth * p);
@@ -137,7 +155,7 @@ class BulletChartRenderer extends ChartRenderer {
         );
 
       // Vertical target tick.
-      final targetX = trackLeft + (metric.target / maxValue) * trackWidth;
+      final targetX = trackLeft + (target / maxValue) * trackWidth;
       canvas.drawLine(
         Offset(targetX, rowTop - 2),
         Offset(targetX, rowTop + rowHeight + 2),
@@ -172,6 +190,76 @@ class BulletChartRenderer extends ChartRenderer {
   }
 
   @override
+  ChartScene buildScene(Size size) {
+    if (metrics.isEmpty) return ChartScene.empty;
+
+    // Mirror draw()'s layout exactly, at full reveal (progress = 1).
+    final chartLeft = size.width * 0.1;
+    final chartTop = size.height * 0.1;
+    final chartWidth = size.width * 0.8;
+    final chartHeight = size.height * 0.8;
+
+    final count = metrics.length;
+    final rowSlot = chartHeight / count;
+    final rowHeight = rowSlot * 0.55;
+
+    final gutter = chartWidth * 0.28;
+    final trackLeft = chartLeft + gutter;
+    final trackWidth = chartWidth - gutter;
+
+    final marks = <PlotMark>[];
+    for (var index = 0; index < count; index++) {
+      final metric = metrics[index];
+      final rowTop = chartTop + rowSlot * index + (rowSlot - rowHeight) / 2;
+      final rowCenterY = rowTop + rowHeight / 2;
+
+      final value = drafterFinite(metric.value);
+      final target = drafterFinite(metric.target);
+      final sortedRanges = [for (final r in metric.ranges) drafterFinite(r)]
+        ..sort();
+      final rangesMax = sortedRanges.isEmpty
+          ? 0.0
+          : sortedRanges.reduce((a, b) => a > b ? a : b);
+      final rawMax = [
+        rangesMax,
+        value,
+        target,
+      ].reduce((a, b) => a > b ? a : b);
+      final maxValue = (!rawMax.isFinite || rawMax <= 0) ? 1.0 : rawMax;
+
+      // Focal point: the measure-bar tip at full reveal.
+      final measureFullWidth = (value / maxValue) * trackWidth;
+      final center = Offset(trackLeft + measureFullWidth, rowCenterY);
+
+      // Region: the entire row slot, so a tap anywhere on the row selects it.
+      final region = Rect.fromLTWH(
+        chartLeft,
+        chartTop + rowSlot * index,
+        chartWidth,
+        rowSlot,
+      );
+
+      marks.add(
+        PlotMark(
+          index: index,
+          seriesIndex: 0,
+          seriesName: '',
+          label: metric.label,
+          value: metric.value,
+          center: center,
+          color: metric.color,
+          region: region,
+        ),
+      );
+    }
+
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      marks: marks,
+    );
+  }
+
+  @override
   String get accessibilityLabel => 'Bullet chart';
 
   @override
@@ -188,22 +276,32 @@ class BulletChartRenderer extends ChartRenderer {
 /// A bullet chart: stacked KPI tracks with qualitative range bands, an animated
 /// value bar, and a target marker per metric.
 class BulletChart extends StatelessWidget {
+  /// Creates a bullet chart for the given [metrics].
   const BulletChart({
     super.key,
     required this.metrics,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// Metrics to render as stacked KPI tracks.
   final List<BulletMetric> metrics;
+
+  /// Whether to play the reveal animation on first build.
   final bool animate;
+
+  /// Bump this counter to replay the reveal animation.
   final int replay;
+
+  /// Duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: BulletChartRenderer(metrics: metrics),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

@@ -21,12 +21,13 @@ linter:
     library_private_types_in_public_api: false
     lines_longer_than_80_chars: false
     no_default_cases: false
+    # `InteractiveRenderer` is a deliberate one-method capability interface.
+    one_member_abstracts: false
     parameter_assignments: false
     # The charts are double-heavy graphics math; forcing int literals on
     # accumulators/coordinates breaks `double` inference, so we opt out.
     prefer_int_literals: false
     prefer_asserts_with_message: false
     prefer_constructors_over_static_methods: false
-    public_member_api_docs: false
     use_if_null_to_convert_nulls_to_bools: false
     use_setters_to_change_properties: false

@@ -18,41 +18,129 @@ import 'dart:math' as math;
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// One wedge of a [PieChart] / [DonutChart]: its weight, fill color, and label.
+@immutable
 class PieSlice {
+  /// Creates a wedge with the given [value] weight, [color] fill, and [label].
   const PieSlice({
     required this.value,
     required this.color,
     required this.label,
   });
 
+  /// The slice's weight; its share of the chart is `value / sum(values)`.
   final double value;
+
+  /// The fill color of the wedge.
   final Color color;
+
+  /// The human-readable label for the slice.
   final String label;
 }
 
-/// The total of all slice values, floored at 1 so an empty dataset can't divide
-/// by zero (matches the Compose `max(sum, 1f)`).
+/// The total of all finite slice values, floored at 1 so an empty dataset can't
+/// divide by zero (matches the Compose `max(sum, 1f)`). Non-finite values are
+/// skipped so a `NaN`/`Infinity` weight can never poison the total.
 double _pieTotal(List<PieSlice> slices) {
-  final sum = slices.fold(0.0, (a, s) => a + s.value);
+  final sum = slices.fold(0.0, (a, s) => s.value.isFinite ? a + s.value : a);
   return sum < 1 ? 1 : sum;
 }
 
 double _radians(double degrees) => degrees * math.pi / 180;
+
+/// A solid pie wedge (center → arc → close) for hit-testing, at full sweep.
+Path _wedgePath(
+  Offset center,
+  double radius,
+  double startDeg,
+  double sweepDeg,
+) {
+  return Path()
+    ..moveTo(center.dx, center.dy)
+    ..arcTo(
+      Rect.fromCircle(center: center, radius: radius),
+      _radians(startDeg),
+      _radians(sweepDeg),
+      false,
+    )
+    ..close();
+}
+
+/// An annular sector (donut band) between [inner] and [outer] radius.
+Path _annularWedge(
+  Offset center,
+  double inner,
+  double outer,
+  double startDeg,
+  double sweepDeg,
+) {
+  return Path()
+    ..arcTo(
+      Rect.fromCircle(center: center, radius: outer),
+      _radians(startDeg),
+      _radians(sweepDeg),
+      true,
+    )
+    ..arcTo(
+      Rect.fromCircle(center: center, radius: inner),
+      _radians(startDeg + sweepDeg),
+      _radians(-sweepDeg),
+      false,
+    )
+    ..close();
+}
 
 // ---------------------------------------------------------------------------
 // Pie
 // ---------------------------------------------------------------------------
 
 /// Draws a list of [PieSlice]s as solid wedges that meet at the center.
-class PieChartRenderer extends ChartRenderer {
+class PieChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for [slices], labeling wedges at or above
+  /// [labelThreshold] percent.
   const PieChartRenderer({required this.slices, this.labelThreshold = 5});
 
+  /// The wedges to draw, in order, sweeping clockwise from 12 o'clock.
   final List<PieSlice> slices;
+
+  /// Minimum percentage a slice must reach for its `%` label to be drawn.
   final double labelThreshold;
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (slices.isEmpty) return ChartScene.empty;
+    final total = _pieTotal(slices);
+    final layout = RadialLayout(size, scale: 0.7);
+    final marks = <PlotMark>[];
+    var startAngle = -90.0;
+    for (var i = 0; i < slices.length; i++) {
+      final fraction = drafterFinite(slices[i].value) / total;
+      final sweep = fraction * 360;
+      final mid = _radians(startAngle + sweep / 2);
+      marks.add(
+        PlotMark(
+          index: i,
+          seriesIndex: 0,
+          seriesName: '',
+          label: slices[i].label,
+          value: slices[i].value,
+          center: layout.pointAt(angle: mid, distance: layout.radius * 0.6),
+          color: slices[i].color,
+          hitPath: _wedgePath(layout.center, layout.radius, startAngle, sweep),
+        ),
+      );
+      startAngle += sweep;
+    }
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: [for (final s in slices) s.label],
+      marks: marks,
+    );
+  }
 
   @override
   void draw(
@@ -76,7 +164,7 @@ class PieChartRenderer extends ChartRenderer {
     var startAngle = -90.0; // 12 o'clock, sweeping clockwise.
 
     for (final slice in slices) {
-      final fraction = slice.value / total;
+      final fraction = drafterFinite(slice.value) / total;
       final sweep = fraction * 360 * progress;
       if (sweep <= 0) {
         startAngle += sweep;
@@ -129,22 +217,33 @@ class PieChartRenderer extends ChartRenderer {
 
 /// A solid pie chart whose wedges sweep in proportionally on reveal.
 class PieChart extends StatelessWidget {
+  /// Creates a pie chart for [slices].
   const PieChart({
     super.key,
     required this.slices,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
+  /// The wedges to draw, in order.
   final List<PieSlice> slices;
+
+  /// Whether to play the entrance reveal animation.
   final bool animate;
+
+  /// Bump this value to replay the entrance animation.
   final int replay;
+
+  /// Duration of the entrance reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: PieChartRenderer(slices: slices),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }
 
@@ -153,16 +252,65 @@ class PieChart extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 /// Draws a list of [PieSlice]s as stroked arcs around a hollow center.
-class DonutChartRenderer extends ChartRenderer {
+class DonutChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for [slices], labeling bands at or above
+  /// [labelThreshold] percent, with a hollow center of [holeRadiusFraction] of
+  /// the outer radius.
   const DonutChartRenderer({
     required this.slices,
     this.labelThreshold = 5,
     this.holeRadiusFraction = 0.5,
   });
 
+  /// The wedges to draw, in order, sweeping clockwise from 12 o'clock.
   final List<PieSlice> slices;
+
+  /// Minimum percentage a slice must reach for its `%` label to be drawn.
   final double labelThreshold;
+
+  /// The hole radius as a fraction of the outer radius (0 = full pie, 1 = ring).
   final double holeRadiusFraction;
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (slices.isEmpty) return ChartScene.empty;
+    final total = _pieTotal(slices);
+    final layout = RadialLayout(size, scale: 0.6);
+    final outerRadius = layout.radius;
+    final innerRadius = outerRadius * holeRadiusFraction;
+    final bandRadius = (outerRadius + innerRadius) / 2;
+    final marks = <PlotMark>[];
+    var startAngle = -90.0;
+    for (var i = 0; i < slices.length; i++) {
+      final fraction = drafterFinite(slices[i].value) / total;
+      final sweep = fraction * 360;
+      final mid = _radians(startAngle + sweep / 2);
+      marks.add(
+        PlotMark(
+          index: i,
+          seriesIndex: 0,
+          seriesName: '',
+          label: slices[i].label,
+          value: slices[i].value,
+          center: layout.pointAt(angle: mid, distance: bandRadius),
+          color: slices[i].color,
+          hitPath: _annularWedge(
+            layout.center,
+            innerRadius,
+            outerRadius,
+            startAngle,
+            sweep,
+          ),
+        ),
+      );
+      startAngle += sweep;
+    }
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: [for (final s in slices) s.label],
+      marks: marks,
+    );
+  }
 
   @override
   void draw(
@@ -189,7 +337,7 @@ class DonutChartRenderer extends ChartRenderer {
     var startAngle = -90.0;
 
     for (final slice in slices) {
-      final fraction = slice.value / total;
+      final fraction = drafterFinite(slice.value) / total;
       final sweep = fraction * 360 * progress;
       final drawSweep = math.max(sweep - gap, 0.0);
       if (drawSweep > 0) {
@@ -238,21 +386,32 @@ class DonutChartRenderer extends ChartRenderer {
 
 /// A donut chart: stroked arcs around a hollow center, sweeping in on reveal.
 class DonutChart extends StatelessWidget {
+  /// Creates a donut chart for [slices].
   const DonutChart({
     super.key,
     required this.slices,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
+  /// The wedges to draw, in order.
   final List<PieSlice> slices;
+
+  /// Whether to play the entrance reveal animation.
   final bool animate;
+
+  /// Bump this value to replay the entrance animation.
   final int replay;
+
+  /// Duration of the entrance reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: DonutChartRenderer(slices: slices),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }

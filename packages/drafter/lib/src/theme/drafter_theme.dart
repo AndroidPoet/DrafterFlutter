@@ -21,6 +21,7 @@ import 'package:flutter/widgets.dart';
 /// Charts read the resolved colors once via [DrafterTheme.of] instead of
 /// recomputing them.
 class DrafterTheme extends InheritedWidget {
+  /// Provides [colors] to the chart subtree below [child].
   const DrafterTheme({super.key, required this.colors, required super.child});
 
   /// Convenience: pick light/dark by a boolean (e.g. brightness == dark).
@@ -30,6 +31,7 @@ class DrafterTheme extends InheritedWidget {
     required super.child,
   }) : colors = dark ? DrafterThemeColors.dark : DrafterThemeColors.light;
 
+  /// The resolved color set provided to descendant charts.
   final DrafterThemeColors colors;
 
   /// The active chart theme for [context]. Defaults to [DrafterThemeColors.light]

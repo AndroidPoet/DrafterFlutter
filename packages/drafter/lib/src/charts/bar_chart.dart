@@ -21,6 +21,7 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
@@ -74,6 +75,68 @@ abstract class _BarVariant {
     required double maxValue,
     required double progress,
   });
+
+  /// The hit-test marks for one group, mirroring [drawGroup]'s geometry but at
+  /// full (un-animated) height so the regions are stable while the chart reveals.
+  /// Defaults to none; interactive variants (simple/grouped/stacked) override it.
+  List<PlotMark> groupMarks({
+    required int index,
+    required double left,
+    required double barWidth,
+    required double groupSpacing,
+    required double chartBottom,
+    required double chartHeight,
+    required double maxValue,
+    required String label,
+  }) => const [];
+}
+
+/// Builds the hit-test scene shared by the interactive bar variants. Reuses the
+/// exact layout math of [_drawBarChart] (same [_BarLayout], spacing, and group
+/// walk) so the marks line up with the drawn bars.
+ChartScene _buildBarScene(_BarVariant variant, Size size) {
+  if (size.width < 1 || size.height < 1) return ChartScene.empty;
+  final labels = variant.labels;
+  if (labels.isEmpty) return ChartScene.empty;
+
+  final layout = _BarLayout(size);
+  final maxValue = math.max(drafterFinite(variant.maxValue()), 1e-6);
+  final (barWidth, groupSpacing) = variant.barAndSpacing(
+    chartWidth: layout.chartWidth,
+    dataSize: labels.length,
+    barsPerGroup: variant.barsPerGroup,
+  );
+  final groupWidth = variant.groupWidth(
+    barWidth: barWidth,
+    barsPerGroup: variant.barsPerGroup,
+  );
+
+  final bounds = ChartBounds.insets(
+    size,
+    left: layout.chartLeft,
+    top: layout.chartTop,
+    right: size.width - (layout.chartLeft + layout.chartWidth),
+    bottom: size.height - layout.chartBottom,
+  );
+
+  final marks = <PlotMark>[];
+  var currentLeft = layout.chartLeft;
+  for (var index = 0; index < labels.length; index++) {
+    marks.addAll(
+      variant.groupMarks(
+        index: index,
+        left: currentLeft,
+        barWidth: barWidth,
+        groupSpacing: groupSpacing,
+        chartBottom: layout.chartBottom,
+        chartHeight: layout.chartHeight,
+        maxValue: maxValue,
+        label: labels[index],
+      ),
+    );
+    currentLeft += groupWidth + groupSpacing;
+  }
+  return ChartScene(bounds: bounds, marks: marks, categories: labels);
 }
 
 /// Draws a rounded-top bar with a soft top-to-bottom gradient (the premium
@@ -86,6 +149,7 @@ void _drawBar(
   required double cornerRadius,
 }) {
   if (rect.height <= 0 || rect.width <= 0) return;
+  if (!rect.isFinite) return;
   final r = math.min(cornerRadius, rect.width / 2);
   final rrect = RRect.fromRectAndRadius(rect, Radius.circular(r));
   final paint = Paint()
@@ -113,7 +177,9 @@ void _drawBarChart(
 
   final layout = _BarLayout(size);
   final barsPerGroup = variant.barsPerGroup;
-  final maxValue = math.max(variant.maxValue(), 1e-6);
+  // Clamp to a finite value so the Y-label `.toInt()` below can never throw on
+  // an Infinity-derived step (and so non-finite data can't poison the scale).
+  final maxValue = math.max(drafterFinite(variant.maxValue()), 1e-6);
 
   // Baseline axis.
   canvas.drawLine(
@@ -214,9 +280,12 @@ String _floatDescription(double value) {
 
 /// Draws `[BarItem]` as single rounded, gradient-filled bars. Each bar binds its
 /// own label, value, and optional color (palette fallback by position).
-class SimpleBarChartRenderer extends ChartRenderer {
+class SimpleBarChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer drawing one bar per item in [bars].
   const SimpleBarChartRenderer({required this.bars});
 
+  /// The bars to draw, each carrying its label, value, and optional color.
   final List<BarItem> bars;
 
   @override
@@ -234,6 +303,14 @@ class SimpleBarChartRenderer extends ChartRenderer {
       progress,
     );
   }
+
+  // The palette is theme-independent, so resolving bar colors against the light
+  // theme here yields the same colors the chart paints with under any theme.
+  @override
+  ChartScene buildScene(Size size) => _buildBarScene(
+    _SimpleVariant(bars: bars, theme: DrafterThemeColors.light),
+    size,
+  );
 
   @override
   String get accessibilityLabel => 'Bar chart';
@@ -293,7 +370,8 @@ class _SimpleVariant extends _BarVariant {
   }) {
     if (index >= bars.length) return;
     final bar = bars[index];
-    final barHeight = (bar.value / maxValue) * chartHeight * progress;
+    final barHeight =
+        (drafterFinite(bar.value) / maxValue) * chartHeight * progress;
     if (barHeight <= 0) return;
     final color = bar.color ?? theme.colorAt(index);
     // Slim the bar for breathing room and round the top corners.
@@ -307,15 +385,48 @@ class _SimpleVariant extends _BarVariant {
     );
     _drawBar(canvas, rect: rect, color: color, cornerRadius: drawWidth * 0.4);
   }
+
+  @override
+  List<PlotMark> groupMarks({
+    required int index,
+    required double left,
+    required double barWidth,
+    required double groupSpacing,
+    required double chartBottom,
+    required double chartHeight,
+    required double maxValue,
+    required String label,
+  }) {
+    if (index >= bars.length) return const [];
+    final bar = bars[index];
+    final barHeight = (drafterFinite(bar.value) / maxValue) * chartHeight;
+    final chartTop = chartBottom - chartHeight;
+    // Full-height column so a tap anywhere over the bar selects it.
+    final region = Rect.fromLTRB(left, chartTop, left + barWidth, chartBottom);
+    return [
+      PlotMark(
+        index: index,
+        seriesIndex: 0,
+        seriesName: '',
+        label: label,
+        value: bar.value,
+        center: Offset(left + barWidth / 2, chartBottom - barHeight),
+        color: bar.color ?? theme.colorAt(index),
+        region: region,
+      ),
+    ];
+  }
 }
 
 /// A simple bar chart: one rounded, gradient-filled bar per `BarItem`.
 class SimpleBarChart extends StatelessWidget {
+  /// Creates a simple bar chart from [bars].
   const SimpleBarChart({
     super.key,
     required this.bars,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
   /// Convenience for unlabeled data: one value per bar, palette-colored.
@@ -324,17 +435,27 @@ class SimpleBarChart extends StatelessWidget {
     required List<double> values,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   }) : bars = [for (final v in values) BarItem.value(v)];
 
+  /// The bars to draw, each carrying its label, value, and optional color.
   final List<BarItem> bars;
+
+  /// Whether to play the reveal animation when the chart first appears.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: SimpleBarChartRenderer(bars: bars),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }
 
@@ -345,13 +466,18 @@ class SimpleBarChart extends StatelessWidget {
 /// Draws side-by-side bars per category from `[ChartSeries]`. Each series is one
 /// colored item; `series[s].values[i]` is that item's bar in category `i`.
 /// `categories` supplies the x-axis labels.
-class GroupedBarChartRenderer extends ChartRenderer {
+class GroupedBarChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer drawing [series] as side-by-side bars per category.
   const GroupedBarChartRenderer({
     required this.series,
     this.categories = const [],
   });
 
+  /// The series to draw; each is one colored bar per category.
   final List<ChartSeries> series;
+
+  /// The x-axis category labels, one per group.
   final List<String> categories;
 
   @override
@@ -369,6 +495,16 @@ class GroupedBarChartRenderer extends ChartRenderer {
       progress,
     );
   }
+
+  @override
+  ChartScene buildScene(Size size) => _buildBarScene(
+    _GroupedVariant(
+      series: series,
+      categories: categories,
+      theme: DrafterThemeColors.light,
+    ),
+    size,
+  );
 
   @override
   String get accessibilityLabel => 'Grouped bar chart';
@@ -441,7 +577,9 @@ class _GroupedVariant extends _BarVariant {
   }) {
     var currentLeft = left;
     for (final item in series) {
-      final value = index < item.values.length ? item.values[index] : 0.0;
+      final value = index < item.values.length
+          ? drafterFinite(item.values[index])
+          : 0.0;
       final barHeight = (value / maxValue) * chartHeight * progress;
       final rect = Rect.fromLTWH(
         currentLeft,
@@ -458,28 +596,81 @@ class _GroupedVariant extends _BarVariant {
       currentLeft += barWidth + _innerSpacing;
     }
   }
+
+  @override
+  List<PlotMark> groupMarks({
+    required int index,
+    required double left,
+    required double barWidth,
+    required double groupSpacing,
+    required double chartBottom,
+    required double chartHeight,
+    required double maxValue,
+    required String label,
+  }) {
+    final chartTop = chartBottom - chartHeight;
+    final marks = <PlotMark>[];
+    var currentLeft = left;
+    for (var s = 0; s < series.length; s++) {
+      final item = series[s];
+      final value = index < item.values.length ? item.values[index] : 0.0;
+      final barHeight = (drafterFinite(value) / maxValue) * chartHeight;
+      marks.add(
+        PlotMark(
+          index: index,
+          seriesIndex: s,
+          seriesName: item.name,
+          label: label,
+          value: value,
+          center: Offset(currentLeft + barWidth / 2, chartBottom - barHeight),
+          color: item.color,
+          region: Rect.fromLTRB(
+            currentLeft,
+            chartTop,
+            currentLeft + barWidth,
+            chartBottom,
+          ),
+        ),
+      );
+      currentLeft += barWidth + _innerSpacing;
+    }
+    return marks;
+  }
 }
 
 /// A grouped bar chart: side-by-side bars for each category.
 class GroupedBarChart extends StatelessWidget {
+  /// Creates a grouped bar chart from [series].
   const GroupedBarChart({
     super.key,
     required this.series,
     this.categories = const [],
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
+  /// The series to draw; each is one colored bar per category.
   final List<ChartSeries> series;
+
+  /// The x-axis category labels, one per group.
   final List<String> categories;
+
+  /// Whether to play the reveal animation when the chart first appears.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: GroupedBarChartRenderer(series: series, categories: categories),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }
 
@@ -490,13 +681,18 @@ class GroupedBarChart extends StatelessWidget {
 /// Draws a vertical stack of segments per category from `[ChartSeries]`. Each
 /// series is one colored segment-level; `series[s].values[i]` is that level's
 /// height in category `i`. `categories` supplies the x-axis labels.
-class StackedBarChartRenderer extends ChartRenderer {
+class StackedBarChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer stacking [series] segments per category.
   const StackedBarChartRenderer({
     required this.series,
     this.categories = const [],
   });
 
+  /// The series to stack; each is one colored segment-level per category.
   final List<ChartSeries> series;
+
+  /// The x-axis category labels, one per stacked bar.
   final List<String> categories;
 
   @override
@@ -514,6 +710,16 @@ class StackedBarChartRenderer extends ChartRenderer {
       progress,
     );
   }
+
+  @override
+  ChartScene buildScene(Size size) => _buildBarScene(
+    _StackedVariant(
+      series: series,
+      categories: categories,
+      theme: DrafterThemeColors.light,
+    ),
+    size,
+  );
 
   @override
   String get accessibilityLabel => 'Stacked bar chart';
@@ -589,7 +795,9 @@ class _StackedVariant extends _BarVariant {
   }) {
     var currentBottom = chartBottom;
     for (final level in series) {
-      final value = index < level.values.length ? level.values[index] : 0.0;
+      final value = index < level.values.length
+          ? drafterFinite(level.values[index])
+          : 0.0;
       final barHeight =
           (value / math.max(maxValue, 1e-6)) * chartHeight * progress;
       final rect = Rect.fromLTWH(
@@ -599,34 +807,90 @@ class _StackedVariant extends _BarVariant {
         barHeight,
       );
       // Square segments so stacks read as a continuous bar.
-      if (barHeight > 0 && barWidth > 0) {
+      if (barHeight > 0 && barWidth > 0 && rect.isFinite) {
         canvas.drawRect(rect, Paint()..color = level.color);
       }
       currentBottom -= barHeight;
     }
   }
+
+  @override
+  List<PlotMark> groupMarks({
+    required int index,
+    required double left,
+    required double barWidth,
+    required double groupSpacing,
+    required double chartBottom,
+    required double chartHeight,
+    required double maxValue,
+    required String label,
+  }) {
+    final marks = <PlotMark>[];
+    var currentBottom = chartBottom;
+    for (var s = 0; s < series.length; s++) {
+      final level = series[s];
+      final value = index < level.values.length ? level.values[index] : 0.0;
+      final barHeight =
+          (drafterFinite(value) / math.max(maxValue, 1e-6)) * chartHeight;
+      marks.add(
+        PlotMark(
+          index: index,
+          seriesIndex: s,
+          seriesName: level.name,
+          label: label,
+          value: value,
+          center: Offset(left + barWidth / 2, currentBottom - barHeight),
+          color: level.color,
+          // Each segment owns its own band; zero-height segments aren't hittable.
+          region: barHeight > 0
+              ? Rect.fromLTRB(
+                  left,
+                  currentBottom - barHeight,
+                  left + barWidth,
+                  currentBottom,
+                )
+              : null,
+        ),
+      );
+      currentBottom -= barHeight;
+    }
+    return marks;
+  }
 }
 
 /// A stacked bar chart: each category's bar stacks its series segments vertically.
 class StackedBarChart extends StatelessWidget {
+  /// Creates a stacked bar chart from [series].
   const StackedBarChart({
     super.key,
     required this.series,
     this.categories = const [],
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
+  /// The series to stack; each is one colored segment-level per category.
   final List<ChartSeries> series;
+
+  /// The x-axis category labels, one per stacked bar.
   final List<String> categories;
+
+  /// Whether to play the reveal animation when the chart first appears.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: StackedBarChartRenderer(series: series, categories: categories),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }
 
@@ -636,7 +900,8 @@ class StackedBarChart extends StatelessWidget {
 
 /// Draws a frequency distribution: bins raw `values` into `binCount` bars. A
 /// single array of points — there are no parallel arrays to mismatch.
-class HistogramRenderer extends ChartRenderer {
+class HistogramRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer binning [values] into [binCount] frequency bars.
   HistogramRenderer({
     required this.values,
     required this.binCount,
@@ -644,19 +909,31 @@ class HistogramRenderer extends ChartRenderer {
   }) : color = color ?? DrafterColors.blue,
        _binned = _bin(values, binCount);
 
+  /// The raw data points to bin.
   final List<double> values;
+
+  /// The number of buckets to distribute [values] across.
   final int binCount;
+
+  /// The fill color for every bin's bar.
   final Color color;
   final (List<String>, List<double>) _binned;
 
   /// Bins raw points into `binCount` buckets, returning range labels and counts.
   static (List<String>, List<double>) _bin(List<double> points, int binCount) {
     if (binCount <= 0) return (const [], const []);
-    final minVal = points.isEmpty ? 0.0 : points.reduce(math.min);
-    final maxVal = points.isEmpty ? minVal : points.reduce(math.max);
+    // Ignore non-finite samples so the range (and the `.toInt()` bucketing
+    // below) can never be poisoned by NaN/Infinity.
+    final finite = [
+      for (final p in points)
+        if (p.isFinite) p,
+    ];
+    final minVal = finite.isEmpty ? 0.0 : finite.reduce(math.min);
+    final maxVal = finite.isEmpty ? minVal : finite.reduce(math.max);
     final binSize = maxVal > minVal ? (maxVal - minVal) / binCount : 1.0;
     final freqs = List<double>.filled(binCount, 0);
     for (final point in points) {
+      if (!point.isFinite) continue;
       final raw = ((point - minVal) / binSize).toInt();
       final idx = math.min(math.max(raw, 0), binCount - 1);
       freqs[idx] += 1;
@@ -691,6 +968,16 @@ class HistogramRenderer extends ChartRenderer {
       progress,
     );
   }
+
+  @override
+  ChartScene buildScene(Size size) => _buildBarScene(
+    _HistogramVariant(
+      labels: _binned.$1,
+      frequencies: _binned.$2,
+      color: color,
+    ),
+    size,
+  );
 
   @override
   String get accessibilityLabel => 'Histogram';
@@ -763,10 +1050,42 @@ class _HistogramVariant extends _BarVariant {
     );
     _drawBar(canvas, rect: rect, color: color, cornerRadius: barWidth * 0.2);
   }
+
+  @override
+  List<PlotMark> groupMarks({
+    required int index,
+    required double left,
+    required double barWidth,
+    required double groupSpacing,
+    required double chartBottom,
+    required double chartHeight,
+    required double maxValue,
+    required String label,
+  }) {
+    if (index >= frequencies.length) return const [];
+    final freq = frequencies[index];
+    final barHeight = (freq / maxValue) * chartHeight;
+    final chartTop = chartBottom - chartHeight;
+    // Full-height column so a tap anywhere over the bin selects it.
+    final region = Rect.fromLTRB(left, chartTop, left + barWidth, chartBottom);
+    return [
+      PlotMark(
+        index: index,
+        seriesIndex: 0,
+        seriesName: '',
+        label: label,
+        value: freq,
+        center: Offset(left + barWidth / 2, chartBottom - barHeight),
+        color: color,
+        region: region,
+      ),
+    ];
+  }
 }
 
 /// A histogram: bins raw `values` into a frequency-distribution bar chart.
 class Histogram extends StatelessWidget {
+  /// Creates a histogram binning [values] into [binCount] bars.
   Histogram({
     super.key,
     required this.values,
@@ -774,13 +1093,26 @@ class Histogram extends StatelessWidget {
     Color? color,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   }) : color = color ?? DrafterColors.blue;
 
+  /// The raw data points to bin.
   final List<double> values;
+
+  /// The number of buckets to distribute [values] across.
   final int binCount;
+
+  /// The fill color for every bin's bar.
   final Color color;
+
+  /// Whether to play the reveal animation when the chart first appears.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
@@ -791,6 +1123,7 @@ class Histogram extends StatelessWidget {
     ),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }
 
@@ -818,7 +1151,9 @@ class _WaterfallColumn {
 /// the initial value, and `totalLabel` to draw a trailing bar at the final
 /// running total — the classic Start … Total waterfall. Connectors are drawn
 /// horizontally at each running total.
-class WaterfallChartRenderer extends ChartRenderer {
+class WaterfallChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer drawing [steps] as a running-total waterfall.
   const WaterfallChartRenderer({
     required this.steps,
     this.initialValue = 0,
@@ -826,9 +1161,16 @@ class WaterfallChartRenderer extends ChartRenderer {
     this.totalLabel,
   });
 
+  /// The incremental changes applied in order to [initialValue].
   final List<WaterfallStep> steps;
+
+  /// The running total the first step starts from.
   final double initialValue;
+
+  /// When set, draws a leading bar at [initialValue] with this label.
   final String? startLabel;
+
+  /// When set, draws a trailing bar at the final running total with this label.
   final String? totalLabel;
 
   /// Builds the ordered columns: optional Start bar, one bar per step, optional
@@ -886,6 +1228,16 @@ class WaterfallChartRenderer extends ChartRenderer {
       size,
       theme,
       progress,
+    );
+  }
+
+  @override
+  ChartScene buildScene(Size size) {
+    final columns = _buildColumns();
+    if (columns.isEmpty) return ChartScene.empty;
+    return _buildBarScene(
+      _WaterfallVariant(columns: columns, theme: DrafterThemeColors.light),
+      size,
     );
   }
 
@@ -955,8 +1307,10 @@ class _WaterfallVariant extends _BarVariant {
   }) {
     if (index >= columns.length || maxValue <= 0) return;
     final column = columns[index];
-    final yStart = chartBottom - (column.start / maxValue) * chartHeight;
-    final yEnd = chartBottom - (column.end / maxValue) * chartHeight;
+    final start = drafterFinite(column.start);
+    final end = drafterFinite(column.end);
+    final yStart = chartBottom - (start / maxValue) * chartHeight;
+    final yEnd = chartBottom - (end / maxValue) * chartHeight;
     final top = math.min(yStart, yEnd);
     final height = (yEnd - yStart).abs() * progress;
     final color = column.color ?? theme.colorAt(index);
@@ -966,7 +1320,8 @@ class _WaterfallVariant extends _BarVariant {
     // Horizontal connector at the previous column's running total.
     if (index > 0) {
       final prevY =
-          chartBottom - (columns[index - 1].end / maxValue) * chartHeight;
+          chartBottom -
+          (drafterFinite(columns[index - 1].end) / maxValue) * chartHeight;
       canvas.drawLine(
         Offset(left - groupSpacing, prevY),
         Offset(left, prevY),
@@ -977,10 +1332,47 @@ class _WaterfallVariant extends _BarVariant {
       );
     }
   }
+
+  @override
+  List<PlotMark> groupMarks({
+    required int index,
+    required double left,
+    required double barWidth,
+    required double groupSpacing,
+    required double chartBottom,
+    required double chartHeight,
+    required double maxValue,
+    required String label,
+  }) {
+    if (index >= columns.length) return const [];
+    final column = columns[index];
+    final chartTop = chartBottom - chartHeight;
+    // The bar's top edge: the higher of its [start, end] span.
+    final barTop =
+        chartBottom -
+        (drafterFinite(math.max(column.start, column.end)) / maxValue) *
+            chartHeight;
+    // Full-height column so a tap anywhere over the bar selects it.
+    final region = Rect.fromLTRB(left, chartTop, left + barWidth, chartBottom);
+    return [
+      PlotMark(
+        index: index,
+        seriesIndex: 0,
+        seriesName: '',
+        label: label,
+        // The running total this column lands on.
+        value: column.end,
+        center: Offset(left + barWidth / 2, barTop),
+        color: column.color ?? theme.colorAt(index),
+        region: region,
+      ),
+    ];
+  }
 }
 
 /// A waterfall chart: bars span the running total's change from an initial value.
 class WaterfallChart extends StatelessWidget {
+  /// Creates a waterfall chart from [steps].
   const WaterfallChart({
     super.key,
     required this.steps,
@@ -989,14 +1381,29 @@ class WaterfallChart extends StatelessWidget {
     this.totalLabel,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
+  /// The incremental changes applied in order to [initialValue].
   final List<WaterfallStep> steps;
+
+  /// The running total the first step starts from.
   final double initialValue;
+
+  /// When set, draws a leading bar at [initialValue] with this label.
   final String? startLabel;
+
+  /// When set, draws a trailing bar at the final running total with this label.
   final String? totalLabel;
+
+  /// Whether to play the reveal animation when the chart first appears.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// How long the reveal animation runs.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
@@ -1008,5 +1415,6 @@ class WaterfallChart extends StatelessWidget {
     ),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }
