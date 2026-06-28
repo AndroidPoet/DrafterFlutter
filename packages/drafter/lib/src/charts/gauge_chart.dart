@@ -20,6 +20,7 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
@@ -32,7 +33,8 @@ double _clamp01(double v) => _clamp(v, 0, 1);
 /// Draws a gauge into a canvas: static track arc + animated value arc.
 /// Holds a `value` within `[min, max]`, an optional `label`, and the accent
 /// `color` used for the knob ring.
-class GaugeChartRenderer extends ChartRenderer {
+class GaugeChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a gauge renderer for [value] within `[min, max]`.
   GaugeChartRenderer({
     required this.value,
     this.min = 0,
@@ -41,15 +43,64 @@ class GaugeChartRenderer extends ChartRenderer {
     Color? color,
   }) : color = color ?? DrafterColors.teal;
 
+  /// Current value plotted on the gauge.
   final double value;
+
+  /// Minimum of the value range (arc start).
   final double min;
+
+  /// Maximum of the value range (arc end).
   final double max;
+
+  /// Optional caption shown under the center value.
   final String label;
+
+  /// Accent color used for the tip knob ring.
   final Color color;
 
   // Compose arc geometry: 0 deg = +x, clockwise (y down). 240 deg sweep starting at 150.
   static const double _startAngleDeg = 150;
   static const double _sweepAngleDeg = 240;
+
+  @override
+  ChartScene buildScene(Size size) {
+    final layout = RadialLayout(size, scale: 0.82);
+    final center = layout.center;
+    final radius = layout.radius;
+    if (radius <= 0) return ChartScene.empty;
+
+    final strokeWidth = radius * 0.16;
+    final arcRadius = radius - strokeWidth / 2;
+
+    // Value fraction clamped to [0, 1] at full reveal (progress = 1).
+    // A non-finite value collapses to the minimum so the tip stays finite.
+    final span = (max - min) == 0 ? 1.0 : (max - min);
+    final fraction = value.isFinite ? _clamp01((value - min) / span) : 0.0;
+    final valueSweep = _sweepAngleDeg * fraction;
+
+    // Needle tip at the end of the value arc.
+    final tipAngle = _radians(_startAngleDeg + valueSweep);
+    final tip = layout.pointAt(angle: tipAngle, distance: arcRadius);
+
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: label.isEmpty ? const [] : [label],
+      marks: [
+        PlotMark(
+          index: 0,
+          seriesIndex: 0,
+          seriesName: '',
+          label: label,
+          value: value,
+          center: tip,
+          color: color,
+          // The whole gauge owns the single value so hovering anywhere on it
+          // shows the value tooltip.
+          region: Rect.fromCircle(center: center, radius: radius),
+        ),
+      ],
+    );
+  }
 
   @override
   void draw(
@@ -81,8 +132,9 @@ class GaugeChartRenderer extends ChartRenderer {
     );
 
     // Value fraction clamped to [0, 1], scaled by the reveal progress.
+    // A non-finite value collapses to the minimum so the knob tip stays finite.
     final span = (max - min) == 0 ? 1.0 : (max - min);
-    final rawFraction = _clamp01((value - min) / span);
+    final rawFraction = value.isFinite ? _clamp01((value - min) / span) : 0.0;
     final fraction = rawFraction * _clamp01(progress);
     final valueSweep = _sweepAngleDeg * fraction;
 
@@ -251,6 +303,7 @@ class GaugeChartRenderer extends ChartRenderer {
 /// A radial gauge with a static track, an animated value arc, a tip knob, and
 /// a centered value/label.
 class GaugeChart extends StatelessWidget {
+  /// Creates a gauge chart for [value] within `[min, max]`.
   const GaugeChart({
     super.key,
     required this.value,
@@ -260,15 +313,32 @@ class GaugeChart extends StatelessWidget {
     this.color,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// Current value plotted on the gauge.
   final double value;
+
+  /// Minimum of the value range (arc start).
   final double min;
+
+  /// Maximum of the value range (arc end).
   final double max;
+
+  /// Optional caption shown under the center value.
   final String label;
+
+  /// Accent color used for the tip knob ring; defaults to the theme accent.
   final Color? color;
+
+  /// Whether to play the reveal animation on first build.
   final bool animate;
+
+  /// Bump this counter to replay the reveal animation.
   final int replay;
+
+  /// Duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
@@ -280,7 +350,7 @@ class GaugeChart extends StatelessWidget {
       color: color,
     ),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

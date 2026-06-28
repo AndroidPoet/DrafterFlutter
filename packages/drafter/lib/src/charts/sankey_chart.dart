@@ -16,7 +16,10 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:drafter/src/core/chart_graphics.dart';
+import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
@@ -27,7 +30,9 @@ import 'package:flutter/widgets.dart';
 /// - `column`: the layer (0, 1, 2, ...) the node belongs to; columns spread
 ///   evenly across the chart width from left to right.
 /// - `color`: the colour of the node bar and the tint of its outgoing bands.
+@immutable
 class SankeyNode {
+  /// Creates a Sankey node with a stable [id], display [label], [column], and bar [color].
   const SankeyNode({
     required this.id,
     required this.label,
@@ -35,23 +40,37 @@ class SankeyNode {
     required this.color,
   });
 
+  /// Stable identifier referenced by [SankeyLink.from] / [SankeyLink.to].
   final String id;
+
+  /// Human-readable text drawn beside the node bar.
   final String label;
+
+  /// The layer (0, 1, 2, ...) the node belongs to, ordered left to right.
   final int column;
+
+  /// The colour of the node bar and the tint of its outgoing bands.
   final Color color;
 }
 
 /// A flow between two nodes. Its [value] determines the band thickness at both
 /// endpoints.
+@immutable
 class SankeyLink {
+  /// Creates a flow of magnitude [value] from node [from] to node [to].
   const SankeyLink({
     required this.from,
     required this.to,
     required this.value,
   });
 
+  /// The id of the source node the flow leaves.
   final String from;
+
+  /// The id of the destination node the flow enters.
   final String to;
+
+  /// The magnitude of the flow, driving band thickness at both endpoints.
   final double value;
 }
 
@@ -77,22 +96,61 @@ class _PlacedNode {
 }
 
 /// Draws a Sankey flow diagram into a canvas.
-class SankeyChartRenderer extends ChartRenderer {
-  const SankeyChartRenderer({required this.nodes, required this.links});
+class SankeyChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for the given [nodes] and [links].
+  SankeyChartRenderer({required this.nodes, required this.links});
 
+  /// The nodes to place into columns and draw as bars.
   final List<SankeyNode> nodes;
+
+  /// The flows drawn as gradient bands between nodes.
   final List<SankeyLink> links;
 
-  @override
-  void draw(
-    Canvas canvas,
-    Size size,
-    DrafterThemeColors theme,
-    double progress,
-  ) {
-    if (nodes.isEmpty) return;
+  // Memoized node layout: the column grouping + throughput accumulation +
+  // placement is progress-independent, so it's computed once per size and reused
+  // across every animation frame and by buildScene (instead of rebuilt
+  // ~60×/second during the reveal). A sentinel distinguishes "not computed yet"
+  // from a legitimately null (degenerate) layout.
+  Size? _placeSize;
+  bool _placeComputed = false;
+  ({
+    Map<String, _PlacedNode> placed,
+    double Function(String) throughput,
+    double chartLeft,
+    double chartTop,
+    double chartWidth,
+  })?
+  _placeCache;
 
-    final prog = progress.clamp(0.0, 1.0);
+  /// The progress-independent node layout shared by [draw] and [buildScene], so
+  /// the hit-test boxes line up exactly with the painted node bars. Returns
+  /// `null` on the same empty/degenerate guards [draw] bails on. Memoized by
+  /// [size] since the layout is reveal-independent.
+  ({
+    Map<String, _PlacedNode> placed,
+    double Function(String) throughput,
+    double chartLeft,
+    double chartTop,
+    double chartWidth,
+  })?
+  _placeNodes(Size size) {
+    if (_placeComputed && _placeSize == size) return _placeCache;
+    final computed = _computePlaceNodes(size);
+    _placeSize = size;
+    _placeCache = computed;
+    _placeComputed = true;
+    return computed;
+  }
+
+  ({
+    Map<String, _PlacedNode> placed,
+    double Function(String) throughput,
+    double chartLeft,
+    double chartTop,
+    double chartWidth,
+  })?
+  _computePlaceNodes(Size size) {
+    if (nodes.isEmpty) return null;
 
     // 8% inset on each side for node labels (mirrors the Compose host).
     const inset = 0.08;
@@ -100,7 +158,7 @@ class SankeyChartRenderer extends ChartRenderer {
     final chartTop = size.height * inset;
     final chartWidth = size.width * (1 - inset * 2);
     final chartHeight = size.height * (1 - inset * 2);
-    if (!(chartWidth > 0) || !(chartHeight > 0)) return;
+    if (!(chartWidth > 0) || !(chartHeight > 0)) return null;
 
     // Index nodes by id; skip links that reference unknown nodes.
     final nodeById = <String, SankeyNode>{};
@@ -119,7 +177,9 @@ class SankeyChartRenderer extends ChartRenderer {
     }
     double throughput(String id) {
       final value = math.max(inflow[id] ?? 0, outflow[id] ?? 0);
-      return math.max(value, 0);
+      // Guard against a NaN/Infinity link value propagating into node heights,
+      // hit-test regions, or the valueToPx scale.
+      return value.isFinite && value > 0 ? value : 0;
     }
 
     // Group by column and order columns left -> right.
@@ -128,7 +188,7 @@ class SankeyChartRenderer extends ChartRenderer {
       columns.putIfAbsent(node.column, () => []).add(node);
     }
     final columnKeys = columns.keys.toList()..sort();
-    if (columnKeys.isEmpty) return;
+    if (columnKeys.isEmpty) return null;
     final maxColumn = columnKeys.last;
 
     final nodeWidth = math.min(math.max(chartWidth * 0.045, 6), 26).toDouble();
@@ -188,10 +248,70 @@ class SankeyChartRenderer extends ChartRenderer {
       }
     }
 
+    return (
+      placed: placed,
+      throughput: throughput,
+      chartLeft: chartLeft,
+      chartTop: chartTop,
+      chartWidth: chartWidth,
+    );
+  }
+
+  /// One [PlotMark] per node: its box [PlotMark.region] (and centre) is the
+  /// painted node bar at full height, [PlotMark.value] its throughput. Links /
+  /// ribbons are not hit-tested.
+  @override
+  ChartScene buildScene(Size size) {
+    final layout = _placeNodes(size);
+    if (layout == null) return ChartScene.empty;
+    final placed = layout.placed.values.toList();
+    if (placed.isEmpty) return ChartScene.empty;
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: [for (final pn in placed) pn.node.label],
+      marks: [
+        for (var i = 0; i < placed.length; i++)
+          PlotMark(
+            index: i,
+            seriesIndex: 0,
+            seriesName: '',
+            label: placed[i].node.label,
+            value: layout.throughput(placed[i].node.id),
+            center: Offset(
+              placed[i].x + placed[i].width / 2,
+              placed[i].top + placed[i].fullHeight / 2,
+            ),
+            color: placed[i].node.color,
+            region: Rect.fromLTWH(
+              placed[i].x,
+              placed[i].top,
+              placed[i].width,
+              placed[i].fullHeight,
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  void draw(
+    Canvas canvas,
+    Size size,
+    DrafterThemeColors theme,
+    double progress,
+  ) {
+    final layout = _placeNodes(size);
+    if (layout == null) return;
+
+    final prog = progress.clamp(0.0, 1.0);
+    final placed = layout.placed;
+    final throughput = layout.throughput;
+    final chartTop = layout.chartTop;
+
     // Running offsets so multiple links share each edge without overlapping.
     final outOffset = <String, double>{};
     final inOffset = <String, double>{};
-    final revealRight = chartLeft + chartWidth * prog;
+    final revealRight = layout.chartLeft + layout.chartWidth * prog;
 
     // Draw the bands first (behind node bars).
     for (final link in links) {
@@ -339,43 +459,58 @@ class SankeyChartRenderer extends ChartRenderer {
     // center by the resolved text's half-width so the WHOLE label stays
     // on-canvas (not just its center), then keep it below the chart top so a
     // near-full-height bar never clips the label off the top edge.
-    final painter = TextPainter(
-      text: TextSpan(
-        text: node.label,
-        style: TextStyle(color: color, fontSize: 10),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: canvasWidth);
-    final half = painter.width / 2;
+    // Measure via the shared text cache (width is color-independent), then draw
+    // through the cached helper instead of building a TextPainter every frame.
+    final half = measureChartText(node.label, fontSize: 10) / 2;
     final lower = math.min(half + 2, canvasWidth / 2);
     final upper = math.max(canvasWidth - half - 2, canvasWidth / 2);
     final cx = math.min(math.max(x + width / 2, lower), upper);
     final ly = math.max(barTop - 4, chartTop + 4);
-    painter.paint(canvas, Offset(cx - half, ly - painter.height));
+    drawChartText(
+      canvas,
+      node.label,
+      Offset(cx, ly),
+      color: color,
+      fontSize: 10,
+      h: HAlign.center,
+      v: VAlign.bottom,
+    );
   }
 }
 
 /// A Sankey flow diagram with gradient flow bands and an animated left-to-right
 /// reveal.
 class SankeyChart extends StatelessWidget {
+  /// Creates a Sankey chart for the given [nodes] and [links].
   const SankeyChart({
     super.key,
     required this.nodes,
     required this.links,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// The nodes laid out into columns.
   final List<SankeyNode> nodes;
+
+  /// The flows drawn between nodes.
   final List<SankeyLink> links;
+
+  /// Whether to animate the reveal on first build.
   final bool animate;
+
+  /// Increment to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: SankeyChartRenderer(nodes: nodes, links: links),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

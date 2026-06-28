@@ -19,19 +19,27 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// One tile of a treemap: a label, its (positive) magnitude, and a fill color.
+@immutable
 class TreemapItem {
+  /// Creates a treemap tile with a [label], (positive) [value], and fill [color].
   const TreemapItem({
     required this.label,
     required this.value,
     required this.color,
   });
 
+  /// The text drawn on the tile.
   final String label;
+
+  /// The tile's magnitude; its area is proportional to this value.
   final double value;
+
+  /// The tile's fill color.
   final Color color;
 }
 
@@ -183,10 +191,74 @@ double _worstAspectRatio(
 }
 
 /// Draws treemap tiles into a canvas using the squarify layout algorithm.
-class TreemapChartRenderer extends ChartRenderer {
-  const TreemapChartRenderer({required this.items});
+class TreemapChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer for the given treemap [items].
+  TreemapChartRenderer({required this.items});
 
+  /// The tiles to lay out and draw, sorted by value internally.
   final List<TreemapItem> items;
+
+  // Memoized squarify layout: the sort + recursive squarify pass is
+  // progress-independent, so it's computed once per size and reused across every
+  // animation frame and by buildScene (instead of rebuilt ~60×/second).
+  Size? _layoutSize;
+  List<_TreemapTile>? _layoutCache;
+
+  /// Lays the tiles out with the same squarify pass [draw] uses, so the marks
+  /// match the drawn rectangles. (No animation here — regions stay stable.)
+  /// Memoized by [size] since the layout is reveal-independent.
+  List<_TreemapTile> _layout(Size size) {
+    final cached = _layoutCache;
+    if (cached != null && _layoutSize == size) return cached;
+    final computed = _computeLayout(size);
+    _layoutSize = size;
+    _layoutCache = computed;
+    return computed;
+  }
+
+  List<_TreemapTile> _computeLayout(Size size) {
+    if (!(size.width > 0) || !(size.height > 0)) return const [];
+    final sorted = [
+      for (final item in items)
+        if (item.value > 0) item,
+    ]..sort((a, b) => b.value.compareTo(a.value));
+    if (sorted.isEmpty) return const [];
+    final inset = (size.width < size.height ? size.width : size.height) * 0.04;
+    final bounds = Rect.fromLTWH(
+      inset,
+      inset,
+      size.width - inset * 2,
+      size.height - inset * 2,
+    );
+    if (!(bounds.width > 0) || !(bounds.height > 0)) return const [];
+    final tiles = <_TreemapTile>[];
+    _squarify(sorted, bounds, tiles);
+    return tiles;
+  }
+
+  @override
+  ChartScene buildScene(Size size) {
+    final tiles = _layout(size);
+    if (tiles.isEmpty) return ChartScene.empty;
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: [for (final t in tiles) t.item.label],
+      marks: [
+        for (var i = 0; i < tiles.length; i++)
+          PlotMark(
+            index: i,
+            seriesIndex: 0,
+            seriesName: '',
+            label: tiles[i].item.label,
+            value: tiles[i].item.value,
+            center: tiles[i].rect.center,
+            color: tiles[i].item.color,
+            region: tiles[i].rect,
+          ),
+      ],
+    );
+  }
 
   @override
   void draw(
@@ -197,24 +269,8 @@ class TreemapChartRenderer extends ChartRenderer {
   ) {
     if (!(size.width > 0) || !(size.height > 0)) return;
 
-    final sorted = [
-      for (final item in items)
-        if (item.value > 0) item,
-    ]..sort((a, b) => b.value.compareTo(a.value));
-    if (sorted.isEmpty) return;
-
-    // Small inset so tiles don't bleed to the very edge.
-    final inset = (size.width < size.height ? size.width : size.height) * 0.04;
-    final bounds = Rect.fromLTWH(
-      inset,
-      inset,
-      size.width - inset * 2,
-      size.height - inset * 2,
-    );
-    if (!(bounds.width > 0) || !(bounds.height > 0)) return;
-
-    final tiles = <_TreemapTile>[];
-    _squarify(sorted, bounds, tiles);
+    final tiles = _layout(size);
+    if (tiles.isEmpty) return;
 
     for (var index = 0; index < tiles.length; index++) {
       _drawTile(
@@ -347,22 +403,32 @@ class TreemapChartRenderer extends ChartRenderer {
 /// A squarified treemap with rounded, gradient tiles and a staggered
 /// scale-from-center reveal.
 class TreemapChart extends StatelessWidget {
+  /// Creates a treemap for the given [items].
   const TreemapChart({
     super.key,
     required this.items,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// The tiles to lay out and draw.
   final List<TreemapItem> items;
+
+  /// Whether to animate the reveal on first build.
   final bool animate;
+
+  /// Increment to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: TreemapChartRenderer(items: items),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

@@ -52,6 +52,17 @@ export 'src/charts/treemap_chart.dart';
 // Core data models. (Rendering helpers — chart_graphics/chart_math/
 // chart_renderer/chart_formatting — are exported from `painting.dart`.)
 export 'src/core/chart_data.dart';
+// The renderer base + interaction capability appear in `InteractiveChart`'s
+// public signature, so they're reachable from this entrypoint too. (The rest of
+// the authoring API — ChartCanvas, layout math, graphics — stays in
+// `painting.dart`.)
+export 'src/core/chart_renderer.dart' show ChartRenderer, InteractiveRenderer;
+// Interactivity: the wrapper widget + the scene/selection model it reports.
+// (Hit-testing and label-layout helpers live in `painting.dart`.)
+export 'src/interaction/chart_scene.dart';
+export 'src/interaction/interactive_chart.dart';
 // Theme.
 export 'src/theme/drafter_colors.dart';
 export 'src/theme/drafter_theme.dart';
+// Widgets.
+export 'src/widgets/drafter_legend.dart';

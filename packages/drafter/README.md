@@ -33,6 +33,8 @@
 - 🎨 Highly customizable appearance with a shared `DrafterThemeColors` (light/dark, custom palettes)
 - ✨ Smooth, premium rendering — Catmull-Rom curves, soft gradient fills, rounded shapes
 - 🎬 Built-in left-to-right reveal animation with a one-line `replay` hook
+- 👆 **Opt-in interactivity** — wrap any chart in `InteractiveChart` for a trackball tooltip, tap value-selection and drag range-selection, painted on the same `Canvas` (no extra dependencies)
+- 🏷️ **Reusable legend** — `DrafterLegend` / `DrafterLegend.fromLabels` renders theme-colored series swatches in any layout, with optional tap-to-toggle callbacks
 - 🚀 Pure Flutter `CustomPaint`/`Canvas`, **zero dependencies** beyond the SDK
 - 📱 Immutable value-type data models and an `InheritedWidget`-based theme
 - ♿️ **Semantics built in** — every chart announces its kind and a data summary, so a `Canvas` is never silently invisible to screen readers
@@ -44,7 +46,7 @@ Add Drafter to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  drafter: ^0.2.0
+  drafter: ^0.3.0
 ```
 
 Or from the command line:
@@ -66,8 +68,9 @@ knobs are shared by all charts:
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `animate` | `true`  | Play the left-to-right reveal on first build. Pass `false` to draw fully revealed. |
-| `replay`  | `0`     | Change this value (e.g. from a button) to replay the entrance animation. |
+| `animate`  | `true`  | Play the left-to-right reveal on first build. Pass `false` to draw fully revealed. |
+| `replay`   | `0`     | Change this value (e.g. from a button) to replay the entrance animation. |
+| `duration` | `≈1s`   | How long the entrance reveal runs. |
 
 ```dart
 AreaChart(points: areaPoints)                     // animates on build
@@ -91,6 +94,71 @@ ScatterPlot.values(values: [(1, 2), (3, 5), (4, 3)])   // raw (x, y) pairs
 
 The full point/series form (`points:`, `series:`, `bars:`) is the primary API for
 labels, multi-series, and per-element colors.
+
+## Interactivity
+
+Charts are static by default. To make one interactive, drive it from a
+**renderer** (every chart widget `Xxx` has a matching `XxxRenderer`) and wrap that
+in an `InteractiveChart`:
+
+```dart
+InteractiveChart(
+  renderer: LineChartRenderer(points: points),
+  interaction: ChartInteraction(
+    rangeSelection: true,
+    onSelected: (sel) => print('tapped ${sel?.mark.value}'),
+    onRangeSelected: (range) => print('range ${range?.startIndex}..${range?.endIndex}'),
+  ),
+)
+```
+
+You get, painted on the same `Canvas` with no extra dependencies:
+
+- **Trackball + tooltip** following the pointer (hover) or finger (drag). On
+  multi-series cartesian charts the tooltip lists every series at that column,
+  with overlapping rows automatically de-overlapped.
+- **Tap to select** the nearest datum — highlighted, and reported via
+  `onSelected` (a `ChartSelection`, or `null` when the tap misses).
+- **Drag to select a range** of columns (cartesian charts) — banded, and
+  reported via `onRangeSelected` (a `ChartRange` with every datum inside it).
+
+Every chart type is supported. Cartesian charts (line/area/step/bar/candlestick/
+stream) use a trackball column; radial and free-layout charts
+(pie/donut/polar/sunburst/treemap/heatmap/funnel/bullet/box-plot/bubble/gantt/
+sankey/scatter/radar) highlight the individual mark under the pointer.
+
+`ChartInteraction` lets you enable just what you want:
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `tooltip` | `true` | Trackball + tooltip on hover/drag. |
+| `selection` | `true` | Tap selects the nearest datum (fires `onSelected`). |
+| `rangeSelection` | `false` | Drag selects a column range (fires `onRangeSelected`). |
+| `rowLabel` | — | Custom `String Function(PlotMark)` to format a tooltip row. |
+
+A renderer that doesn't implement `InteractiveRenderer` (or an empty
+`ChartInteraction`) degrades gracefully to a plain, static chart.
+
+## Legend
+
+Multi-series charts pair naturally with a `DrafterLegend`. Build it from a list
+of labels — each is colored by the active theme palette, matching how the chart
+colors its series — or from explicit `LegendItem`s:
+
+```dart
+Column(
+  children: [
+    SizedBox(height: 220, child: LineChart(series: series)),
+    const SizedBox(height: 12),
+    DrafterLegend.fromLabels(const ['Revenue', 'Cost', 'Profit']),
+  ],
+)
+```
+
+It lays out horizontally (wrapping) or vertically, offers `square` / `circle` /
+`line` markers, and takes an optional `onItemTap` so you can wire series
+toggling into your own state. Wrap it (and your charts) in a `DrafterTheme` to
+share one palette across both.
 
 ## Table of Contents
 

@@ -19,6 +19,7 @@ import 'package:drafter/src/core/chart_data.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
@@ -28,10 +29,57 @@ import 'package:flutter/widgets.dart';
 /// from later series unioned in so no series loses an axis. Each series carries
 /// its own `color`, is filled at 22% and stroked at 90% opacity, both scaled by
 /// reveal `progress`; vertices grow outward from the center as `progress` advances.
-class RadarChartRenderer extends ChartRenderer {
+class RadarChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer that overlays each polygon in [series].
   const RadarChartRenderer({required this.series});
 
+  /// The series to overlay, each contributing one polygon.
   final List<RadarSeries> series;
+
+  @override
+  ChartScene buildScene(Size size) {
+    // Mirror draw()'s early-returns so degenerate inputs hit-test to nothing.
+    if (series.isEmpty) return ChartScene.empty;
+    final axisLabels = _orderedAxisLabels(series);
+    final axisCount = axisLabels.length;
+    if (axisCount < 3) return ChartScene.empty;
+
+    final layout = RadialLayout(size);
+    final marks = <PlotMark>[];
+
+    // One mark per (series, axis) vertex, at full (un-animated) radius so the
+    // hit regions stay put while the entrance animation expands the polygons.
+    for (var s = 0; s < series.length; s++) {
+      final entry = series[s];
+      for (var index = 0; index < axisCount; index++) {
+        final label = axisLabels[index];
+        final value = drafterFinite(entry.values[label] ?? 0);
+        final angle = _axisAngle(index, axisCount);
+        final vertex = layout.pointAt(
+          angle: angle,
+          distance: layout.radius * value,
+        );
+        marks.add(
+          PlotMark(
+            index: index,
+            seriesIndex: s,
+            seriesName: '',
+            label: label,
+            value: value,
+            center: vertex,
+            color: entry.color,
+            region: Rect.fromCircle(center: vertex, radius: 12),
+          ),
+        );
+      }
+    }
+
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: axisLabels,
+      marks: marks,
+    );
+  }
 
   @override
   void draw(
@@ -130,7 +178,7 @@ class RadarChartRenderer extends ChartRenderer {
     final points = <Offset>[
       for (var index = 0; index < axisLabels.length; index++)
         () {
-          final value = series.values[axisLabels[index]] ?? 0;
+          final value = drafterFinite(series.values[axisLabels[index]] ?? 0);
           final angle = _axisAngle(index, axisCount);
           final distance = layout.radius * value * p;
           return layout.pointAt(angle: angle, distance: distance);
@@ -204,21 +252,32 @@ class RadarChartRenderer extends ChartRenderer {
 /// A multi-axis radar chart with grid rings, per-axis labels, and an animated
 /// expand-from-center reveal for each overlaid series.
 class RadarChart extends StatelessWidget {
+  /// Creates a radar chart that overlays each polygon in [series].
   const RadarChart({
     super.key,
     required this.series,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 1000),
   });
 
+  /// The series to overlay, each contributing one polygon.
   final List<RadarSeries> series;
+
+  /// Whether to play the entrance reveal animation.
   final bool animate;
+
+  /// Bump this value to replay the entrance animation.
   final int replay;
+
+  /// Duration of the entrance reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: RadarChartRenderer(series: series),
     animate: animate,
     replay: replay,
+    duration: duration,
   );
 }

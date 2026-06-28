@@ -21,6 +21,7 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
@@ -41,12 +42,64 @@ Path _steppedPath(List<Offset> points) {
 /// Draws a stepped line chart from `[ChartPoint]` as horizontal/vertical steps,
 /// with a soft gradient fill, a left-to-right reveal that clips the trace, and
 /// vertex dots at each data point. Mirrors the Compose `StepLineChartRenderer`.
-class StepLineChartRenderer extends ChartRenderer {
+class StepLineChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer for a single stepped line series of [points].
   StepLineChartRenderer({required this.points, Color? color})
     : color = color ?? DrafterColors.teal;
 
+  /// The ordered data points of the series.
   final List<ChartPoint> points;
+
+  /// The stroke and gradient-fill color of the stepped line.
   final Color color;
+
+  /// The shared data→pixel scale; same insets/zero-anchor [draw] uses.
+  CartesianScale _scaleFor(Size size) {
+    // Coerce non-finite values so the axis max can never become NaN/Infinity.
+    final values = [for (final p in points) drafterFinite(p.value)];
+    final rawMax = values.isEmpty
+        ? 0.0
+        : values.reduce((a, b) => a > b ? a : b);
+    return CartesianScale(
+      bounds: ChartBounds.insets(
+        size,
+        left: 40,
+        top: 12,
+        right: 16,
+        bottom: 26,
+      ),
+      count: values.length,
+      minValue: 0,
+      maxValue: rawMax <= 0 ? 1.0 : rawMax,
+    );
+  }
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (points.isEmpty) return ChartScene.empty;
+    final scale = _scaleFor(size);
+    return ChartScene(
+      bounds: scale.bounds,
+      scale: scale,
+      categories: [for (final p in points) p.label],
+      marks: [
+        for (var i = 0; i < points.length; i++)
+          PlotMark(
+            index: i,
+            seriesIndex: 0,
+            seriesName: '',
+            label: points[i].label,
+            value: points[i].value,
+            center: Offset(
+              scale.xForIndex(i),
+              scale.yForValue(drafterFinite(points[i].value)),
+            ),
+            color: color,
+          ),
+      ],
+    );
+  }
 
   @override
   void draw(
@@ -55,7 +108,7 @@ class StepLineChartRenderer extends ChartRenderer {
     DrafterThemeColors theme,
     double progress,
   ) {
-    final values = [for (final p in points) p.value];
+    final values = [for (final p in points) drafterFinite(p.value)];
     if (values.isEmpty) return;
 
     final bounds = ChartBounds.insets(
@@ -202,12 +255,14 @@ class StepLineChartRenderer extends ChartRenderer {
 
 /// A stepped line chart with a soft gradient fill and a left-to-right reveal.
 class StepLineChart extends StatelessWidget {
+  /// Creates a single-series stepped line chart for [points].
   StepLineChart({
     super.key,
     required this.points,
     Color? color,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   }) : color = color ?? DrafterColors.teal;
 
   /// Convenience for unlabeled data: one value per point, blank x-axis labels.
@@ -217,19 +272,30 @@ class StepLineChart extends StatelessWidget {
     Color? color,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   }) : points = [for (final v in values) ChartPoint.value(v)],
        color = color ?? DrafterColors.teal;
 
+  /// The ordered data points to plot.
   final List<ChartPoint> points;
+
+  /// The stroke and gradient-fill color of the stepped line.
   final Color color;
+
+  /// Whether to play the reveal animation when first shown.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: StepLineChartRenderer(points: points, color: color),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

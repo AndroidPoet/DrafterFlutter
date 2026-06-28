@@ -19,28 +19,107 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// One stage (band) of a [FunnelChart]: a [label], a [value], and a fill [color].
+@immutable
 class FunnelStage {
+  /// Creates a funnel stage with a [label], a [value], and a fill [color].
   const FunnelStage({
     required this.label,
     required this.value,
     required this.color,
   });
 
+  /// Text shown inside the stage band.
   final String label;
+
+  /// Magnitude of this stage; drives the band width.
   final double value;
+
+  /// Fill color of the stage band.
   final Color color;
 }
 
 /// Draws an ordered list of [FunnelStage]s as stacked, center-converging
 /// trapezoids into a canvas.
-class FunnelChartRenderer extends ChartRenderer {
+class FunnelChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for the given ordered [stages].
   const FunnelChartRenderer({required this.stages});
 
+  /// Ordered stages drawn top-to-bottom as converging trapezoids.
   final List<FunnelStage> stages;
+
+  /// Builds one [PlotMark] per stage, replaying [draw]'s trapezoid geometry at
+  /// full reveal (`progress = 1`) so the hit shapes match the drawn bands.
+  @override
+  ChartScene buildScene(Size size) {
+    if (stages.isEmpty) return ChartScene.empty;
+
+    final chartLeft = size.width * 0.1;
+    final chartTop = size.height * 0.08;
+    final chartWidth = size.width * 0.8;
+    final chartHeight = size.height * 0.84;
+
+    final finiteValues = stages.map((s) => s.value).where((v) => v.isFinite);
+    final maxValue = finiteValues.isEmpty
+        ? 1.0
+        : finiteValues.reduce((a, b) => a > b ? a : b);
+    final safeMax = maxValue > 0 ? maxValue : 1.0;
+    final centerX = chartLeft + chartWidth / 2;
+    final gap = chartHeight * 0.02;
+    final count = stages.length;
+    final bandHeight = (chartHeight - gap * (count - 1)) / count;
+    const minWidthFraction = 0.12;
+
+    double widthFor(double value) {
+      final fraction =
+          minWidthFraction +
+          (1 - minWidthFraction) * (drafterFinite(value) / safeMax);
+      return chartWidth * fraction;
+    }
+
+    final marks = <PlotMark>[];
+    for (var index = 0; index < count; index++) {
+      final stage = stages[index];
+      final topHalf = widthFor(stage.value) / 2;
+      final bottomValue = index < count - 1
+          ? stages[index + 1].value
+          : stage.value;
+      final bottomHalf = widthFor(bottomValue) / 2;
+
+      final bandTop = chartTop + index * (bandHeight + gap);
+      final bandBottom = bandTop + bandHeight;
+
+      final path = Path()
+        ..moveTo(centerX - topHalf, bandTop)
+        ..lineTo(centerX + topHalf, bandTop)
+        ..lineTo(centerX + bottomHalf, bandBottom)
+        ..lineTo(centerX - bottomHalf, bandBottom)
+        ..close();
+
+      marks.add(
+        PlotMark(
+          index: index,
+          seriesIndex: 0,
+          seriesName: '',
+          label: stage.label,
+          value: stage.value,
+          center: Offset(centerX, bandTop + bandHeight / 2),
+          color: stage.color,
+          hitPath: path,
+        ),
+      );
+    }
+
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      categories: [for (final s in stages) s.label],
+      marks: marks,
+    );
+  }
 
   @override
   void draw(
@@ -57,9 +136,10 @@ class FunnelChartRenderer extends ChartRenderer {
     final chartWidth = size.width * 0.8;
     final chartHeight = size.height * 0.84;
 
-    final maxValue = stages
-        .map((s) => s.value)
-        .fold<double>(stages.first.value, (a, b) => a > b ? a : b);
+    final finiteValues = stages.map((s) => s.value).where((v) => v.isFinite);
+    final maxValue = finiteValues.isEmpty
+        ? 1.0
+        : finiteValues.reduce((a, b) => a > b ? a : b);
     final safeMax = maxValue > 0 ? maxValue : 1.0;
     final centerX = chartLeft + chartWidth / 2;
     final gap = chartHeight * 0.02;
@@ -70,7 +150,8 @@ class FunnelChartRenderer extends ChartRenderer {
 
     double widthFor(double value) {
       final fraction =
-          minWidthFraction + (1 - minWidthFraction) * (value / safeMax);
+          minWidthFraction +
+          (1 - minWidthFraction) * (drafterFinite(value) / safeMax);
       return chartWidth * fraction;
     }
 
@@ -181,22 +262,32 @@ class FunnelChartRenderer extends ChartRenderer {
 
 /// A stacked, center-converging funnel chart with an animated outward reveal.
 class FunnelChart extends StatelessWidget {
+  /// Creates a funnel chart for the given [stages].
   const FunnelChart({
     super.key,
     required this.stages,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// Ordered stages to render, top to bottom.
   final List<FunnelStage> stages;
+
+  /// Whether to play the reveal animation on first build.
   final bool animate;
+
+  /// Bump this counter to replay the reveal animation.
   final int replay;
+
+  /// Duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: FunnelChartRenderer(stages: stages),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

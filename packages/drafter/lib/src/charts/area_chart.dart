@@ -20,18 +20,71 @@ import 'package:drafter/src/core/chart_formatting.dart';
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// Draws a smooth area chart from `[ChartPoint]`: Catmull-Rom spline, soft
 /// gradient fill that fades to the baseline, a left-to-right reveal, and
 /// white-haloed vertex dots.
-class AreaChartRenderer extends ChartRenderer {
+class AreaChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for a single smooth area series of [points].
   AreaChartRenderer({required this.points, Color? color})
     : color = color ?? DrafterColors.blue;
 
+  /// The ordered data points of the series.
   final List<ChartPoint> points;
+
+  /// The stroke and gradient-fill color of the area.
   final Color color;
+
+  /// The shared data→pixel scale — the single geometry source for [draw] and
+  /// [buildScene]. Zero-anchored, with the max clamped to >= 1 like Compose.
+  CartesianScale _scaleFor(Size size) {
+    // Coerce non-finite values so the axis max can never become NaN/Infinity.
+    final values = [for (final p in points) drafterFinite(p.value)];
+    final rawMax = values.isEmpty
+        ? 0.0
+        : values.reduce((a, b) => a > b ? a : b);
+    return CartesianScale(
+      bounds: ChartBounds.insets(
+        size,
+        left: 40,
+        top: 12,
+        right: 16,
+        bottom: 26,
+      ),
+      count: values.length,
+      minValue: 0,
+      maxValue: rawMax <= 0 ? 1.0 : rawMax,
+    );
+  }
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (points.length < 2) return ChartScene.empty;
+    final scale = _scaleFor(size);
+    return ChartScene(
+      bounds: scale.bounds,
+      scale: scale,
+      categories: [for (final p in points) p.label],
+      marks: [
+        for (var i = 0; i < points.length; i++)
+          PlotMark(
+            index: i,
+            seriesIndex: 0,
+            seriesName: '',
+            label: points[i].label,
+            value: points[i].value,
+            center: Offset(
+              scale.xForIndex(i),
+              scale.yForValue(drafterFinite(points[i].value)),
+            ),
+            color: color,
+          ),
+      ],
+    );
+  }
 
   @override
   void draw(
@@ -41,20 +94,11 @@ class AreaChartRenderer extends ChartRenderer {
     double progress,
   ) {
     if (points.length < 2) return;
-    final values = [for (final p in points) p.value];
+    final values = [for (final p in points) drafterFinite(p.value)];
 
-    final bounds = ChartBounds.insets(
-      size,
-      left: 40,
-      top: 12,
-      right: 16,
-      bottom: 26,
-    );
-    // Zero-anchored axis, like the Compose renderer (max clamped to >= 1).
-    final rawMax = values.isEmpty
-        ? 0.0
-        : values.reduce((a, b) => a > b ? a : b);
-    final maxValue = rawMax <= 0 ? 1.0 : rawMax;
+    final scale = _scaleFor(size);
+    final bounds = scale.bounds;
+    final maxValue = scale.maxValue;
 
     // Y grid + labels (4 ticks).
     const tickCount = 4;
@@ -82,17 +126,10 @@ class AreaChartRenderer extends ChartRenderer {
       );
     }
 
-    // Map points into pixel space.
-    final denom = math.max(1, values.length - 1).toDouble();
+    // Map points into pixel space via the shared scale.
     final pixelPoints = <Offset>[
       for (var index = 0; index < values.length; index++)
-        () {
-          final t = index / denom;
-          final x = bounds.left + bounds.width * t;
-          final norm = values[index] / maxValue;
-          final y = bounds.bottom - norm * bounds.height;
-          return Offset(x, y);
-        }(),
+        Offset(scale.xForIndex(index), scale.yForValue(values[index])),
     ];
 
     // Smooth area + line + reveal + end dot (shared helper).
@@ -147,12 +184,14 @@ class AreaChartRenderer extends ChartRenderer {
 
 /// A smooth area chart with a soft gradient fill and an animated reveal.
 class AreaChart extends StatelessWidget {
+  /// Creates a single-series area chart for [points].
   AreaChart({
     super.key,
     required this.points,
     Color? color,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   }) : color = color ?? DrafterColors.blue;
 
   /// Convenience for unlabeled data: one value per point, blank x-axis labels.
@@ -162,19 +201,30 @@ class AreaChart extends StatelessWidget {
     Color? color,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   }) : points = [for (final v in values) ChartPoint.value(v)],
        color = color ?? DrafterColors.blue;
 
+  /// The ordered data points to plot.
   final List<ChartPoint> points;
+
+  /// The stroke and gradient-fill color of the area.
   final Color color;
+
+  /// Whether to play the reveal animation when first shown.
   final bool animate;
+
+  /// Bump this value to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: AreaChartRenderer(points: points, color: color),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

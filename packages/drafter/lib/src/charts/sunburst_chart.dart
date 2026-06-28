@@ -18,14 +18,42 @@ import 'dart:math' as math;
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 double _radians(double degrees) => degrees * math.pi / 180;
 
+/// An annular sector (ring band) between [inner] and [outer] radius, used as the
+/// hit shape for a sunburst node.
+Path _annularWedge(
+  Offset center,
+  double inner,
+  double outer,
+  double startDeg,
+  double sweepDeg,
+) {
+  return Path()
+    ..arcTo(
+      Rect.fromCircle(center: center, radius: outer),
+      _radians(startDeg),
+      _radians(sweepDeg),
+      true,
+    )
+    ..arcTo(
+      Rect.fromCircle(center: center, radius: inner),
+      _radians(startDeg + sweepDeg),
+      _radians(-sweepDeg),
+      false,
+    )
+    ..close();
+}
+
 /// One node in a [SunburstChart] hierarchy. Root nodes form the inner ring; their
 /// `children` form the outer ring, each subdividing the parent's angular span.
+@immutable
 class SunburstNode {
+  /// Creates a sunburst node with a [label], [value], [color], and optional [children].
   const SunburstNode({
     required this.label,
     required this.value,
@@ -33,17 +61,119 @@ class SunburstNode {
     this.children = const [],
   });
 
+  /// The text drawn on the node's wedge.
   final String label;
+
+  /// The node's magnitude; its angular sweep is proportional to this value.
   final double value;
+
+  /// The node's wedge color.
   final Color color;
+
+  /// The child nodes forming this node's outer-ring subdivision.
   final List<SunburstNode> children;
 }
 
 /// Draws a sunburst hierarchy into a canvas as two concentric rings.
-class SunburstChartRenderer extends ChartRenderer {
+class SunburstChartRenderer extends ChartRenderer
+    implements InteractiveRenderer {
+  /// Creates a renderer for the given [roots] hierarchy.
   const SunburstChartRenderer({required this.roots});
 
+  /// The root nodes forming the inner ring; their children form the outer ring.
   final List<SunburstNode> roots;
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (roots.isEmpty) return ChartScene.empty;
+
+    final layout = RadialLayout(size, scale: 0.92);
+    final center = layout.center;
+    final maxRadius = layout.radius;
+    if (!(maxRadius > 0)) return ChartScene.empty;
+
+    final total = math.max(roots.fold(0.0, (a, b) => a + b.value), 0.0001);
+
+    final holeRadius = maxRadius * 0.22;
+    final innerOuter = maxRadius * 0.60;
+    final outerOuter = maxRadius;
+
+    final marks = <PlotMark>[];
+    var index = 0;
+    var cursor = -90.0;
+    for (final root in roots) {
+      final rootSweep = (root.value / total) * 360;
+      final rootStart = cursor;
+
+      if (rootSweep > 0) {
+        final rootMid = _radians(rootStart + rootSweep / 2);
+        marks.add(
+          PlotMark(
+            index: index++,
+            seriesIndex: 0,
+            seriesName: '',
+            label: root.label,
+            value: root.value,
+            center: layout.pointAt(
+              angle: rootMid,
+              distance: (holeRadius + innerOuter) / 2,
+            ),
+            color: root.color,
+            hitPath: _annularWedge(
+              center,
+              holeRadius,
+              innerOuter,
+              rootStart,
+              rootSweep,
+            ),
+          ),
+        );
+      }
+
+      // Outer ring: children subdivide the parent's full angular span.
+      final childTotal = math.max(
+        root.children.fold(0.0, (a, b) => a + b.value),
+        0.0001,
+      );
+      final fullRootSweep = (root.value / total) * 360;
+      var childCursor = rootStart;
+      for (final child in root.children) {
+        final childSweep = (child.value / childTotal) * fullRootSweep;
+        if (childSweep > 0) {
+          final childMid = _radians(childCursor + childSweep / 2);
+          marks.add(
+            PlotMark(
+              index: index++,
+              seriesIndex: 1,
+              seriesName: '',
+              label: child.label,
+              value: child.value,
+              center: layout.pointAt(
+                angle: childMid,
+                distance: (innerOuter + outerOuter) / 2,
+              ),
+              color: child.color,
+              hitPath: _annularWedge(
+                center,
+                innerOuter,
+                outerOuter,
+                childCursor,
+                childSweep,
+              ),
+            ),
+          );
+        }
+        childCursor += childSweep;
+      }
+
+      cursor += rootSweep;
+    }
+
+    return ChartScene(
+      bounds: ChartBounds(size, padding: 0),
+      marks: marks,
+    );
+  }
 
   @override
   void draw(
@@ -227,22 +357,32 @@ void _drawRingLabel({
 /// A hierarchical sunburst chart: inner ring of roots, outer ring of children,
 /// drawn clockwise from the top with an animated sweep reveal.
 class SunburstChart extends StatelessWidget {
+  /// Creates a sunburst chart for the given [roots] hierarchy.
   const SunburstChart({
     super.key,
     required this.roots,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 900),
   });
 
+  /// The root nodes forming the inner ring.
   final List<SunburstNode> roots;
+
+  /// Whether to animate the reveal on first build.
   final bool animate;
+
+  /// Increment to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: SunburstChartRenderer(roots: roots),
     animate: animate,
-    duration: const Duration(milliseconds: 900),
+    duration: duration,
     replay: replay,
   );
 }

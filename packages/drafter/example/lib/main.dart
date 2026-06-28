@@ -60,6 +60,11 @@ List<ChartSeries> _series(int seriesCount, int count) {
   ];
 }
 
+/// Wraps a renderer in an [InteractiveChart] with default interactions
+/// (tooltip + tap selection) — the gallery's shorthand for "make this card live".
+Widget _interactive(ChartRenderer renderer) =>
+    InteractiveChart(renderer: renderer);
+
 class DemoApp extends StatelessWidget {
   const DemoApp({super.key});
 
@@ -370,130 +375,258 @@ class _Gallery extends StatelessWidget {
       MovingAverage(period: 10, color: Color(0xFFF6B24C)),
     ];
 
+    // Every card is interactive: each chart's renderer is wrapped in an
+    // `InteractiveChart`, so hover/tap shows a tooltip and tap selects a datum.
+    // The first two also wire up onSelected/onRangeSelected readouts.
     return [
+      _InteractiveCard(
+        title: 'Interactive Line — hover, tap, drag',
+        renderer: LineChartRenderer(points: linePoints),
+        rangeSelection: true,
+      ),
+      _InteractiveCard(
+        title: 'Interactive Bars — hover, tap',
+        renderer: SimpleBarChartRenderer(bars: bars),
+      ),
       _ChartCard(
         title: 'Line',
-        child: LineChart(points: linePoints),
+        child: _interactive(LineChartRenderer(points: linePoints)),
       ),
       _ChartCard(
         title: 'Grouped Line',
-        child: GroupedLineChart(series: lineSeries2, categories: _months),
+        child: _interactive(
+          GroupedLineChartRenderer(series: lineSeries2, categories: _months),
+        ),
       ),
       _ChartCard(
         title: 'Stacked Line',
-        child: StackedLineChart(series: stackSeries, categories: _months),
+        child: _interactive(
+          StackedLineChartRenderer(series: stackSeries, categories: _months),
+        ),
+      ),
+      _ChartCard(
+        title: 'Grouped Line + Legend',
+        child: Column(
+          children: [
+            Expanded(
+              child: _interactive(
+                GroupedLineChartRenderer(
+                  series: lineSeries2,
+                  categories: _months,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            DrafterLegend.fromLabels([for (final s in lineSeries2) s.name]),
+          ],
+        ),
       ),
       _ChartCard(
         title: 'Area',
-        child: AreaChart(points: _monthlyPoints()),
+        child: _interactive(AreaChartRenderer(points: _monthlyPoints())),
       ),
       _ChartCard(
         title: 'Step Line',
-        child: StepLineChart(points: _monthlyPoints()),
+        child: _interactive(StepLineChartRenderer(points: _monthlyPoints())),
       ),
       _ChartCard(
         title: 'Simple Bar',
-        child: SimpleBarChart(bars: bars),
+        child: _interactive(SimpleBarChartRenderer(bars: bars)),
       ),
       _ChartCard(
         title: 'Grouped Bar',
-        child: GroupedBarChart(
-          series: groupedBars,
-          categories: const ['A', 'B', 'C', 'D', 'E'],
+        child: _interactive(
+          GroupedBarChartRenderer(
+            series: groupedBars,
+            categories: const ['A', 'B', 'C', 'D', 'E'],
+          ),
         ),
       ),
       _ChartCard(
         title: 'Stacked Bar',
-        child: StackedBarChart(
-          series: stackedBars,
-          categories: const ['A', 'B', 'C', 'D', 'E'],
+        child: _interactive(
+          StackedBarChartRenderer(
+            series: stackedBars,
+            categories: const ['A', 'B', 'C', 'D', 'E'],
+          ),
         ),
       ),
       _ChartCard(
         title: 'Histogram',
-        child: Histogram(values: histValues, binCount: 8),
+        child: _interactive(HistogramRenderer(values: histValues, binCount: 8)),
       ),
       _ChartCard(
         title: 'Waterfall',
-        child: WaterfallChart(
-          steps: waterfall,
-          initialValue: 30,
-          startLabel: 'Start',
-          totalLabel: 'Total',
+        child: _interactive(
+          WaterfallChartRenderer(
+            steps: waterfall,
+            initialValue: 30,
+            startLabel: 'Start',
+            totalLabel: 'Total',
+          ),
         ),
       ),
       _ChartCard(
         title: 'Pie',
-        child: PieChart(slices: pieSlices),
+        child: _interactive(PieChartRenderer(slices: pieSlices)),
       ),
       _ChartCard(
         title: 'Donut',
-        child: DonutChart(slices: pieSlices),
+        child: _interactive(DonutChartRenderer(slices: pieSlices)),
       ),
       _ChartCard(
         title: 'Radar',
-        child: RadarChart(series: radarSeries),
+        child: _interactive(RadarChartRenderer(series: radarSeries)),
       ),
       _ChartCard(
         title: 'Polar Area',
-        child: PolarAreaChart(slices: polarSlices),
+        child: _interactive(PolarAreaChartRenderer(slices: polarSlices)),
       ),
-      const _ChartCard(
+      _ChartCard(
         title: 'Gauge',
-        child: GaugeChart(value: 72, label: 'Score'),
+        child: _interactive(GaugeChartRenderer(value: 72, label: 'Score')),
       ),
       _ChartCard(
         title: 'Scatter Plot',
-        child: ScatterPlot(points: scatter),
+        child: _interactive(ScatterPlotRenderer(points: scatter)),
       ),
       _ChartCard(
         title: 'Bubble',
-        child: BubbleChart(series: bubbles),
+        child: _interactive(BubbleChartRenderer(series: bubbles)),
       ),
       _ChartCard(
         title: 'Heatmap',
-        child: Heatmap(contributions: contributions),
+        child: _interactive(HeatmapRenderer(contributions: contributions)),
       ),
       _ChartCard(
         title: 'Funnel',
-        child: FunnelChart(stages: funnel),
+        child: _interactive(FunnelChartRenderer(stages: funnel)),
       ),
       _ChartCard(
         title: 'Bullet',
-        child: BulletChart(metrics: bullets),
+        child: _interactive(BulletChartRenderer(metrics: bullets)),
       ),
       _ChartCard(
         title: 'Box Plot',
-        child: BoxPlotChart(groups: boxes),
+        child: _interactive(BoxPlotChartRenderer(groups: boxes)),
       ),
       _ChartCard(
         title: 'Treemap',
-        child: TreemapChart(items: treemap),
+        child: _interactive(TreemapChartRenderer(items: treemap)),
       ),
       _ChartCard(
         title: 'Sunburst',
-        child: SunburstChart(roots: sunburst),
+        child: _interactive(SunburstChartRenderer(roots: sunburst)),
       ),
       _ChartCard(
         title: 'Sankey',
-        child: SankeyChart(nodes: sankeyNodes, links: sankeyLinks),
+        child: _interactive(
+          SankeyChartRenderer(nodes: sankeyNodes, links: sankeyLinks),
+        ),
       ),
-      const _ChartCard(
+      _ChartCard(
         title: 'Gantt',
-        child: GanttChart(tasks: gantt),
+        child: _interactive(GanttChartRenderer(tasks: gantt)),
       ),
       _ChartCard(
         title: 'Stream Graph',
-        child: StreamGraphChart(series: lineSeries3, categories: _months),
+        child: _interactive(
+          StreamGraphChartRenderer(series: lineSeries3, categories: _months),
+        ),
       ),
       _ChartCard(
         title: 'Candlestick',
-        child: CandlestickChart(
-          candles: candles,
-          movingAverages: movingAverages,
+        child: _interactive(
+          CandlestickChartRenderer(
+            candles: candles,
+            movingAverages: movingAverages,
+          ),
         ),
       ),
     ];
+  }
+}
+
+/// A card wrapping a chart in an [InteractiveChart], with a live readout of the
+/// last tap selection and drag range below it.
+class _InteractiveCard extends StatefulWidget {
+  const _InteractiveCard({
+    required this.title,
+    required this.renderer,
+    this.rangeSelection = false,
+  });
+
+  final String title;
+  final ChartRenderer renderer;
+  final bool rangeSelection;
+
+  @override
+  State<_InteractiveCard> createState() => _InteractiveCardState();
+}
+
+class _InteractiveCardState extends State<_InteractiveCard> {
+  String _readout =
+      'Hover for a tooltip · tap to select'
+      ' · drag to select a range';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x14000000)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.title,
+            style: const TextStyle(
+              color: Color(0xFF55606C),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: InteractiveChart(
+              renderer: widget.renderer,
+              interaction: ChartInteraction(
+                rangeSelection: widget.rangeSelection,
+                onSelected: (s) => setState(() {
+                  _readout = s == null
+                      ? 'No selection'
+                      : 'Selected ${s.mark.label.isEmpty ? '#${s.mark.index}' : s.mark.label}'
+                            ' = ${s.mark.value.toStringAsFixed(0)}';
+                }),
+                onRangeSelected: (r) => setState(() {
+                  _readout = r == null
+                      ? 'No range'
+                      : 'Range ${r.startIndex}–${r.endIndex}'
+                            ' (${r.marks.length} points)';
+                }),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _readout,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF8A92A2), fontSize: 11),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -15,6 +15,7 @@
  */
 import 'dart:async';
 
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:drafter/src/theme/drafter_theme.dart';
 import 'package:flutter/widgets.dart';
@@ -22,7 +23,12 @@ import 'package:flutter/widgets.dart';
 /// Draws one chart into a [Canvas]. Implementations hold immutable data + style,
 /// mirroring the Compose/SwiftUI renderer pattern: a renderer is a pure value
 /// that, given a canvas, size, theme, and reveal [progress], draws itself.
+///
+/// (A few renderers keep a transparent, size-keyed layout *cache* — a pure
+/// memoization that never changes their observable output — so they are not
+/// annotated `@immutable`, but they remain value-semantically immutable.)
 abstract class ChartRenderer {
+  /// Const base constructor for renderer subclasses.
   const ChartRenderer();
 
   /// Draws the chart. [progress] is the entrance reveal in `0..1` (1 = fully drawn).
@@ -40,9 +46,22 @@ abstract class ChartRenderer {
   String get accessibilityValue => '';
 }
 
+/// An opt-in capability a [ChartRenderer] can also implement to expose the
+/// geometry it drew, so the interaction layer can hit-test it. `InteractiveChart`
+/// checks `renderer is InteractiveRenderer`; renderers that don't implement it
+/// still render normally, just without tooltips/selection (graceful degrade).
+abstract interface class InteractiveRenderer {
+  /// Builds the hit-test [ChartScene] for [size]. Implementations must derive it
+  /// from the *same* math used in [ChartRenderer.draw], so the marks line up
+  /// with the pixels exactly.
+  ChartScene buildScene(Size size);
+}
+
 /// Shared formatting so every renderer's [ChartRenderer.accessibilityValue]
 /// reads consistently. Trims trailing zeros so `40.0` announces as `"40"`.
 abstract final class AccessibilityFormat {
+  /// Formats a single [value] for speech: integers drop the decimal, and
+  /// fractional values trim trailing zeros (so `40.0` reads as `"40"`).
   static String number(double value) {
     if (value == value.roundToDouble()) return '${value.round()}';
     var text = value.toStringAsFixed(2);
@@ -78,6 +97,8 @@ abstract final class AccessibilityFormat {
 /// reveal animation. Every concrete chart widget wraps this — so the
 /// animation/theming plumbing lives in exactly one place.
 class ChartCanvas extends StatefulWidget {
+  /// Creates a canvas hosting [renderer], optionally tracing it in with the
+  /// reveal animation ([animate]) over [duration].
   const ChartCanvas({
     super.key,
     required this.renderer,
@@ -86,8 +107,13 @@ class ChartCanvas extends StatefulWidget {
     this.replay = 0,
   });
 
+  /// The renderer drawn into the canvas.
   final ChartRenderer renderer;
+
+  /// Whether to play the entrance reveal animation on first build.
   final bool animate;
+
+  /// How long the entrance reveal animation runs.
   final Duration duration;
 
   /// Change this value to replay the entrance animation.

@@ -18,13 +18,16 @@ import 'dart:math' as math;
 import 'package:drafter/src/core/chart_graphics.dart';
 import 'package:drafter/src/core/chart_math.dart';
 import 'package:drafter/src/core/chart_renderer.dart';
+import 'package:drafter/src/interaction/chart_scene.dart';
 import 'package:drafter/src/theme/drafter_colors.dart';
 import 'package:flutter/widgets.dart';
 
 /// One row of a [GanttChart]: a [name], its [startMonth] on the timeline, a
 /// [duration] in months, and an optional bar [color] (falls back to the theme
 /// palette when `null`).
+@immutable
 class GanttTask {
+  /// Creates a Gantt task spanning [duration] months from [startMonth].
   const GanttTask({
     required this.name,
     required this.startMonth,
@@ -32,17 +35,74 @@ class GanttTask {
     this.color,
   });
 
+  /// The task name shown as the y-axis label.
   final String name;
+
+  /// The task's start position on the timeline, in months.
   final int startMonth;
+
+  /// The task's length, in months.
   final int duration;
+
+  /// Optional bar color; falls back to the theme palette when `null`.
   final Color? color;
 }
 
 /// Draws an ordered `[GanttTask]` into a canvas as a horizontal timeline of bars.
-class GanttChartRenderer extends ChartRenderer {
+class GanttChartRenderer extends ChartRenderer implements InteractiveRenderer {
+  /// Creates a renderer for the given ordered [tasks].
   const GanttChartRenderer({required this.tasks});
 
+  /// The tasks drawn as horizontal bars, top to bottom in order.
   final List<GanttTask> tasks;
+
+  @override
+  ChartScene buildScene(Size size) {
+    if (size.width < 1 || size.height < 1 || tasks.isEmpty) {
+      return ChartScene.empty;
+    }
+
+    // Same Compose layout the draw() pass uses.
+    final chartHeight = size.height * 0.8;
+    final chartWidth = size.width * 0.7;
+    final chartTop = size.height * 0.1;
+    final chartLeft = size.width * 0.2;
+    final safeMaxMonth = _maxMonth.toDouble();
+
+    final taskHeight = math.max(chartHeight / tasks.length, 1.0);
+    // Free timeline layout (not index-uniform columns) → no CartesianScale.
+    // Each task bar owns its full drawn rect for tap selection.
+    final bounds = ChartBounds(size, padding: 0);
+    final palette = DrafterColors.palette;
+    final marks = <PlotMark>[];
+    for (var index = 0; index < tasks.length; index++) {
+      final task = tasks[index];
+      final startX = chartLeft + (task.startMonth / safeMaxMonth) * chartWidth;
+      // Full-progress width (the buildScene mirrors the final frame).
+      final width = math.max((task.duration / safeMaxMonth) * chartWidth, 1.0);
+      final y = chartTop + index * taskHeight;
+      final barHeight = math.max(taskHeight * 0.8, 1.0);
+      final rect = Rect.fromLTWH(
+        startX,
+        y + taskHeight * 0.1,
+        width,
+        barHeight,
+      );
+      marks.add(
+        PlotMark(
+          index: index,
+          seriesIndex: 0,
+          seriesName: '',
+          label: task.name,
+          value: task.duration.toDouble(),
+          center: rect.center,
+          color: task.color ?? palette[index % palette.length],
+          region: rect,
+        ),
+      );
+    }
+    return ChartScene(bounds: bounds, marks: marks);
+  }
 
   /// Largest `startMonth + duration` across all tasks, clamped to at least 1.
   int get _maxMonth {
@@ -243,22 +303,32 @@ class GanttChartRenderer extends ChartRenderer {
 
 /// A horizontal Gantt timeline with rounded task bars and an animated reveal.
 class GanttChart extends StatelessWidget {
+  /// Creates a Gantt chart for the given ordered [tasks].
   const GanttChart({
     super.key,
     required this.tasks,
     this.animate = true,
     this.replay = 0,
+    this.duration = const Duration(milliseconds: 2000),
   });
 
+  /// The tasks drawn as horizontal bars.
   final List<GanttTask> tasks;
+
+  /// Whether to animate the reveal on first build.
   final bool animate;
+
+  /// Increment to replay the reveal animation.
   final int replay;
+
+  /// The duration of the reveal animation.
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) => ChartCanvas(
     renderer: GanttChartRenderer(tasks: tasks),
     animate: animate,
-    duration: const Duration(milliseconds: 2000),
+    duration: duration,
     replay: replay,
   );
 }
