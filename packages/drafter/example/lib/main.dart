@@ -405,6 +405,23 @@ class _Gallery extends StatelessWidget {
         ),
       ),
       _ChartCard(
+        title: 'Grouped Line + Legend',
+        child: Column(
+          children: [
+            Expanded(
+              child: _interactive(
+                GroupedLineChartRenderer(
+                  series: lineSeries2,
+                  categories: _months,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            DrafterLegend.fromLabels([for (final s in lineSeries2) s.name]),
+          ],
+        ),
+      ),
+      _ChartCard(
         title: 'Area',
         child: _interactive(AreaChartRenderer(points: _monthlyPoints())),
       ),

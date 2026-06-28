@@ -64,3 +64,5 @@ export 'src/interaction/interactive_chart.dart';
 // Theme.
 export 'src/theme/drafter_colors.dart';
 export 'src/theme/drafter_theme.dart';
+// Widgets.
+export 'src/widgets/drafter_legend.dart';

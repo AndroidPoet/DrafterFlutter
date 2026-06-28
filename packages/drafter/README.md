@@ -34,6 +34,7 @@
 - ✨ Smooth, premium rendering — Catmull-Rom curves, soft gradient fills, rounded shapes
 - 🎬 Built-in left-to-right reveal animation with a one-line `replay` hook
 - 👆 **Opt-in interactivity** — wrap any chart in `InteractiveChart` for a trackball tooltip, tap value-selection and drag range-selection, painted on the same `Canvas` (no extra dependencies)
+- 🏷️ **Reusable legend** — `DrafterLegend` / `DrafterLegend.fromLabels` renders theme-colored series swatches in any layout, with optional tap-to-toggle callbacks
 - 🚀 Pure Flutter `CustomPaint`/`Canvas`, **zero dependencies** beyond the SDK
 - 📱 Immutable value-type data models and an `InheritedWidget`-based theme
 - ♿️ **Semantics built in** — every chart announces its kind and a data summary, so a `Canvas` is never silently invisible to screen readers
@@ -137,6 +138,27 @@ sankey/scatter/radar) highlight the individual mark under the pointer.
 
 A renderer that doesn't implement `InteractiveRenderer` (or an empty
 `ChartInteraction`) degrades gracefully to a plain, static chart.
+
+## Legend
+
+Multi-series charts pair naturally with a `DrafterLegend`. Build it from a list
+of labels — each is colored by the active theme palette, matching how the chart
+colors its series — or from explicit `LegendItem`s:
+
+```dart
+Column(
+  children: [
+    SizedBox(height: 220, child: LineChart(series: series)),
+    const SizedBox(height: 12),
+    DrafterLegend.fromLabels(const ['Revenue', 'Cost', 'Profit']),
+  ],
+)
+```
+
+It lays out horizontally (wrapping) or vertically, offers `square` / `circle` /
+`line` markers, and takes an optional `onItemTap` so you can wire series
+toggling into your own state. Wrap it (and your charts) in a `DrafterTheme` to
+share one palette across both.
 
 ## Table of Contents
 

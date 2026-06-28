@@ -26,6 +26,11 @@
 * `ChartRenderer` / `InteractiveRenderer` are now re-exported from the main
   `package:drafter/drafter.dart` entrypoint (they appear in `InteractiveChart`'s
   signature).
+* **`DrafterLegend`** — a reusable, theme-aware legend widget. Build it from
+  explicit `LegendItem`s or from a list of labels (`DrafterLegend.fromLabels`,
+  which colors each entry by the active theme palette). Supports horizontal
+  (wrapping) or vertical layout, `square` / `circle` / `line` markers, and an
+  optional `onItemTap` callback for wiring series toggling.
 
 ### Fixed
 * **Robustness** — non-finite (`NaN` / `Infinity`) input values are now coerced
